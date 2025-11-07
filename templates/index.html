@@ -1,0 +1,117 @@
+{% extends "layout.html" %}
+{% block content %}
+
+{% if players_to_analyze_grouped %}
+    <div class="row">
+        <div class="col-md-7">
+            <h3>Adım 2: Oyuncu Baremlerini Girin</h3>
+            <p>Listelenen kilit oyuncular için (PTS) baremlerini girin. Hafızadan gelenler otomatik dolduruldu.</p>
+            
+            <form action="{{ url_for('handle_run_analysis') }}" method="POST">
+                <input type="hidden" name="today_str" value="{{ today_str }}">
+                
+                {% for matchup, players in players_to_analyze_grouped.items() %}
+                    
+                    <h4 class="mt-4 mb-2" style="background-color: #e9ecef; padding: 10px; border-radius: 5px; font-weight: bold;">
+                        🏀 {{ matchup }}
+                    </h4>
+                    
+                    <table class="table table-sm table-striped table-hover">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Oyuncu</th>
+                                <th>Takım</th>
+                                <th style="width: 120px;">Ort. Dakika</th>
+                                <th style="width: 150px;">Barem (PTS)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for player in players %}
+                                <tr>
+                                    <td><b>{{ player.PLAYER_NAME }}</b></td>
+                                    <td>{{ player.TEAM_ABBREVIATION }}</td>
+                                    <td>{{ "%.1f" | format(player.MIN_PER_GAME) }}</td>
+                                    <td>
+                                        <input type="number" 
+                                               step="0.1" 
+                                               class="form-control form-control-sm"
+                                               name="barem_{{ player.PLAYER_NAME }}"
+                                               value="{{ cached_barems.get(player.PLAYER_NAME, '') }}"
+                                               placeholder="Örn: 22.5">
+                                    </td>
+                                </tr>
+                            {% endfor %} </tbody>
+                    </table>
+
+                {% endfor %} <div class="d-grid gap-2 col-8 mx-auto mt-4 mb-5">
+                    <button type="submit" class="btn btn-primary btn-lg" style="font-weight: bold;">
+                        ANALİZİ BAŞLAT
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="col-md-5">
+            <h3>Adım 1: API Logları</h3>
+            <p>Fikstür ve sakatlık durumu bilgileri:</p>
+            <pre class="form-control analysis-report" style="height: 1000px;">{{ sonuclar }}</pre>
+        </div>
+    </div>
+
+{% elif sonuclar %}
+    <div class="row">
+        {% if top_2_picks %}
+            <div class="col-md-5">
+                <h3>⭐ En Güvenilir 2 Öneri (Farklı Maçlardan)</h3>
+                
+                {% for aday in top_2_picks %}
+                    <div class="card mb-3">
+                        <div class="card-header {% if aday.direction == 'ÜST' %}bg-success-subtle{% else %}bg-danger-subtle{% endif %}">
+                            <strong class="{% if aday.direction == 'ÜST' %}text-success-emphasis{% else %}text-danger-emphasis{% endif %}">
+                                #{{ loop.index }} {{ aday.name }} ({{ aday.threshold }}) {{ aday.direction }}
+                            </strong>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">
+                                <b>SİNERJİ: {{ "%.3f" | format(aday.sinerji_skoru) }}</b>
+                                (Desen: %{{ "%.1f" | format(aday.pts_prob) }} | Güven: %{{ aday.confidence }})
+                            </p>
+                            <small class="text-body-secondary">
+                                <b>1. Desen:</b> {{ aday.pts_comment }}<br>
+                                <b>2. Hacim:</b> {{ aday.comment_hacim }}<br>
+                                <b>3. Verimlilik:</b> {{ aday.comment_verimlilik }}<br>
+                                <b>4. B2B:</b> {{ aday.raw_b2b_comment }}<br>
+                                <b>5. Delta:</b> {{ aday.raw_delta_comment }}
+                            </small>
+                        </div>
+                    </div>
+                {% endfor %}
+                
+                {% if all_results_ready %}
+                    <a href="{{ url_for('route_all_results') }}" class="btn btn-outline-secondary mt-3">
+                        Tüm Sonuçları Göster ({{ session.get('last_full_analysis_results', []) | length }} aday) &raquo;
+                    </a>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        <div class="col-md-7">
+            <h3>Analiz Raporu</h3>
+            <pre class="form-control analysis-report" style="height: 800px;">{{ sonuclar }}</pre>
+            <a href="{{ url_for('route_index') }}" class="btn btn-primary mt-3">&laquo; Başa Dön</a>
+        </div>
+    </div>
+
+{% else %}
+    <div class="text-center p-5 bg-body-tertiary rounded-3">
+        <h1 class="display-4">Hibrit Analiz Motoru</h1>
+        <p class="lead">
+            Güncel NBA fikstürünü, sakatlıkları ve oyuncu verilerini çekmek için analizi başlatın.
+        </p>
+        <a href="{{ url_for('handle_get_players') }}" class="btn btn-primary btn-lg" style="font-weight: bold;">
+            GÜNÜN OYUNCU LİSTESİNİ AL &raquo;
+        </a>
+    </div>
+{% endif %}
+
+{% endblock %}

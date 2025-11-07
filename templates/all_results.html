@@ -1,0 +1,110 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="row">
+    <div class="col-12">
+        <h3 class="mb-3">Tüm Analiz Sonuçları (Sıralı Döküm)</h3>
+        <p>
+            <a href="/" class="btn btn-secondary">&laquo; Analiz Ekranına Geri Dön</a>
+        </p>
+        
+        <h4 class="text-success mt-4">--- EN İYİ 4 FARKLI MAÇ ÖNERİSİ ---</h4>
+        <p class="text-muted">(Sıralama: 1. Sinerji, 2. Desen, 3. Güven)</p>
+        
+        {% if not top_4_diverse %}
+            <p>Filtreyi geçen, farklı maçlardan aday bulunamadı.</p>
+        {% endif %}
+        
+        <div class="row">
+            {% for aday in top_4_diverse %}
+                {% set is_main_pick = False %}
+                {% for pick in main_screen_picks %}
+                    {% if pick.name == aday.name and pick.threshold == aday.threshold and pick.direction == aday.direction %}
+                        {% set is_main_pick = True %}
+                    {% endif %}
+                {% endfor %}
+
+                {% if is_main_pick %}
+                    {% set border_color = 'border-success' if aday.direction == 'ÜST' else 'border-danger' %}
+                    {% set header_text = 'text-success' if aday.direction == 'ÜST' else 'text-danger' %}
+                    {% set header_title = '(ANA EKRAN ÖNERİSİ)' %}
+                {% else %}
+                    {% set border_color = 'border-warning' %}
+                    {% set header_text = 'text-warning-emphasis' %}
+                    {% set header_title = '' %}
+                {% endif %}
+
+                <div class="col-lg-6 mb-3">
+                    <div class="card shadow-sm {{ border_color }}">
+                        <div class="card-header {{ header_text }}">
+                            <strong>#{{ loop.index }} {{ header_title }}</strong>
+                        </div>
+                        <div class="card-body" style="font-size: 0.9rem;">
+                            <h5 class="card-title {{ header_text }}">
+                                {{ aday.name }} ({{ aday.threshold | round(1) }} PTS {{ aday.direction }})
+                            </h5>
+                            <p class="mb-1">
+                                <strong>SİNERJİ: {{ aday.sinerji_skoru | round(3) }}</strong>
+                                (Desen: {{ aday.pts_prob | round(1) }}% | Güven: {{ aday.confidence }}%)
+                            </p>
+                            <hr>
+                            <p class="mb-1 text-muted" style="font-size: 0.8rem;">(1) Desen: {{ aday.pts_comment }}</p>
+                            <p class="mb-1">(2) Hacim: {{ aday.comment_hacim }}</p>
+                            <p class="mb-1">(3) Verimlilik: {{ aday.comment_verimlilik }}</p>
+                            <p class="mb-1">(4) B2B: {{ aday.raw_b2b_comment }}</p>
+                            <p class="mb-1 {% if aday.delta_tag == 'delta_plus' %}text-success{% elif aday.delta_tag == 'delta_minus' %}text-danger{% endif %}">
+                               (5) Delta: {{ aday.raw_delta_comment }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        
+        <h4 class="text-danger mt-5">--- DİĞER TÜM SONUÇLAR (Sıralı) ---</h4>
+        <p class="text-muted">(Aynı maçtan diğer baremler veya desen filtresine takılanlar)</p>
+
+        <div class="row">
+            {% if not other_results %}
+                <p>Listede başka aday bulunamadı.</p>
+            {% endif %}
+
+            {% for aday in other_results %}
+                {% set border_color = 'border-secondary' %}
+                {% set header_text = '' %}
+
+                <div class="col-lg-6 mb-3">
+                    <div class="card shadow-sm {{ border_color }}">
+                        <div class="card-header {{ header_text }}">
+                            <strong>#{{ loop.index + top_4_diverse|length }}: {{ aday.name }} ({{ aday.threshold | round(1) }} PTS {{ aday.direction }})</strong>
+                        </div>
+                        <div class="card-body" style="font-size: 0.9rem;">
+                            {% if aday.pts_prob < MINIMUM_PATTERN_PROBABILITY %}
+                                <p class="mb-1 text-danger">
+                                    <strong>SİNERJİ: {{ aday.sinerji_skoru | round(3) }} (Desen: {{ aday.pts_prob | round(1) }}% | Güven: {{ aday.confidence }}%) (FİLTREYE TAKILDI)</strong>
+                                </p>
+                            {% else %}
+                                <p class="mb-1">
+                                    <strong>SİNERJİ: {{ aday.sinerji_skoru | round(3) }}</strong>
+                                    (Desen: {{ aday.pts_prob | round(1) }}% | Güven: {{ aday.confidence }}%)
+                                </p>
+                            {% endif %}
+                            <hr>
+                            <p class="mb-1 text-muted" style="font-size: 0.8rem;">(1) Desen: {{ aday.pts_comment }}</p>
+                            <p class="mb-1">(2) Hacim: {{ aday.comment_hacim }}</p>
+                            <p class="mb-1">(3) Verimlilik: {{ aday.comment_verimlilik }}</p>
+                            <p class="mb-1">(4) B2B: {{ aday.raw_b2b_comment }}</p>
+                            <p class="mb-1 {% if aday.delta_tag == 'delta_plus' %}text-success{% elif aday.delta_tag == 'delta_minus' %}text-danger{% endif %}">
+                               (5) Delta: {{ aday.raw_delta_comment }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        
+    </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="row">
+    <div class="col-lg-4 col-md-5 mb-3">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">Kontrol Paneli</h5>
+                
+                <form action="/run-backtest" method="POST">
+                    <div class="mb-3">
+                        <label for="log_date" class="form-label">Geçmiş Analiz Tarihleri:</label>
+                        <select class="form-select" name="log_date" id="log_date" size="10" required>
+                            {% for date in log_dates %}
+                                <option value="{{ date }}"
+                                        {% if date == selected_date %}selected{% endif %}>
+                                    {{ date }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary p-3">
+                            SEÇİLEN TARİHİ KONTROL ET
+                        </button>
+                    </div>
+                </form>
+                
+                <hr>
+                
+                <form action="/run-total-backtest" method="GET">
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-danger p-3">
+                            TÜM LOGLARI KONTROL ET (TOTAL BAŞARI)
+                        </button>
+                    </div>
+                </form>
+                
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8 col-md-7">
+        <h5>Başarı Analizi Sonuçları ({{ selected_date | default('Tarih Seçilmedi', true) }})</h5>
+        
+        {% if report_summary %}
+        <div class="card shadow-sm mb-3">
+            <div class="card-header">
+                <strong>BAŞARI ÖZETİ ({{ selected_date }})</strong>
+            </div>
+            <div class="card-body">
+                {% for line, tag in report_summary %}
+                    <p class="{{ tag }} mb-1">{{ line }}</p>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <pre class="form-control analysis-report" style="height: 600px;">
+{% if report_top4 or report_other %}
+--- 1. TOP 4 ÇEŞİTLİ ÖNERİLERİN BAŞARISI ---
+    {% for line, tag in report_top4 %}
+<span class="{{ tag }}">{{ line }}</span>
+    {% endfor %}
+
+--- 2. TÜM DİĞER ANALİZLERİN YÖNSEL BAŞARISI ---
+    {% for line, tag in report_other %}
+<span class="{{ tag }}">{{ line }}</span>
+    {% endfor %}
+{% else %}
+Lütfen kontrol etmek için bir tarih seçin veya tüm logları kontrol edin...
+{% endif %}
+        </pre>
+    </div>
+</div>
+
+{% endblock %}

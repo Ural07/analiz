@@ -1,0 +1,12 @@
+# Gizli şifreler
+.env
+
+# Python önbellek dosyaları
+__pycache__/
+*.pyc
+
+# Artık gereksiz olan eski yerel dosyalar
+nba_analiz.db
+*.csv
+barem_cache.json
+analysis_log.json

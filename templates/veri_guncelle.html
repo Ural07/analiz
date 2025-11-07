@@ -1,0 +1,114 @@
+{% extends "layout.html" %} 
+{% block content %}
+
+<style>
+    #status-box { 
+        border: 1px solid #ccc; 
+        padding: 10px; 
+        margin-top: 10px; 
+        background-color: #f8f9fa; /* Bootstrap 'pre' rengi */
+        white-space: pre-wrap; /* Mesajların düzgün görünmesi için */
+        font-family: "Courier New", Courier, monospace; /* Ana font ile aynı */
+        min-height: 50px;
+    }
+    
+    /* Bootstrap 'btn-danger' sınıfını ezelim */
+    #update-button {
+        font-weight: bold;
+    }
+</style>
+
+<h2>Veri Güncelleme Paneli</h2>
+<p>
+    Bu buton, <b>'veri_cek.py'</b> scriptini sunucu arka planında çalıştırır.
+    Bu işlem API'den veri çekeceği için birkça dakika sürebilir.
+    İşlem bittiğinde, sunucudaki CSV verileri otomatik olarak yenilenecektir.
+</p>
+<p class="text-danger">
+    <b>DİKKAT:</b> Bu işlem çalışırken (birkaç dakika boyunca) sitedeki diğer analizler kilitlenecektir.
+</p>
+
+<button id="update-button" class="btn btn-danger btn-lg" onclick="startUpdate()">
+    'veri_cek.py' Çalıştır ve Tüm CSV'leri Güncelle
+</button>
+
+<h3 class="mt-4">Güncelleme Durumu:</h3>
+<div id="status-box" class="form-control">
+    Durum kontrol ediliyor...
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+    const statusBox = document.getElementById('status-box');
+    const updateButton = document.getElementById('update-button');
+    let poller = null; // Durum sorgulayıcı
+
+    // 1. Durumu sunucudan çeken fonksiyon
+    async function getStatus() {
+        try {
+            // app.py'deki /get-update-status rotasını çağır
+            const response = await fetch("{{ url_for('handle_get_status') }}");
+            const data = await response.json();
+            
+            // Durum mesajını kutuya yaz
+            statusBox.textContent = data.message;
+            
+            if (data.is_running) {
+                // Eğer işlem çalışıyorsa butonu kapat ve sorgulamaya devam et
+                updateButton.disabled = true;
+                updateButton.textContent = "Güncelleme Çalışıyor...";
+                
+                // Hâla çalışıyorsa 3 saniye sonra tekrar sor
+                if (!poller) {
+                   poller = setInterval(getStatus, 3000);
+                }
+            } else {
+                // İşlem çalışmıyorsa butonu aç ve sorgulamayı durdur
+                updateButton.disabled = false;
+                updateButton.textContent = "'veri_cek.py' Çalıştır ve Tüm CSV'leri Güncelle";
+                
+                if (poller) {
+                    clearInterval(poller);
+                    poller = null;
+                }
+            }
+        } catch (e) {
+            statusBox.textContent = "Hata: Sunucu durumu alınamadı. " + e.message;
+        }
+    }
+
+    // 2. Güncellemeyi başlatan fonksiyon
+    async function startUpdate() {
+        if (!confirm("Veri güncelleme işlemini (veri_cek.py) başlatmak istediğinizden emin misiniz? Bu işlem birkaç dakika sürebilir.")) {
+            return;
+        }
+        
+        try {
+            // Butonu hemen kapat
+            updateButton.disabled = true;
+            statusBox.textContent = "Güncelleme başlatma talebi gönderiliyor...";
+            
+            // app.py'deki /start-update rotasını çağır
+            const response = await fetch("{{ url_for('handle_start_update') }}", { method: 'POST' });
+            const data = await response.json();
+            
+            statusBox.textContent = data.message;
+            
+            // Başlatma başarılıysa, durumu sorgulamaya başla
+            if (data.success) {
+                getStatus();
+            } else {
+                updateButton.disabled = false; // Başlatma başarısızsa butonu geri aç
+            }
+        } catch (e) {
+            statusBox.textContent = "Hata: Güncelleme başlatılamadı. " + e.message;
+            updateButton.disabled = false;
+        }
+    }
+
+    // Sayfa yüklendiğinde mevcut durumu hemen kontrol et
+    document.addEventListener('DOMContentLoaded', getStatus);
+</script>
+{% endblock %}

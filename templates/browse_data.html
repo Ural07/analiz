@@ -1,0 +1,196 @@
+{% extends "layout.html" %}
+{% block content %}
+<link rel="stylesheet" href="https://cdn.datatables.net/2.1.0/css/dataTables.bootstrap5.min.css">
+<link rel="stylesheet" href="https://cdn.datatables.net/responsive/3.0.2/css/responsive.bootstrap5.min.css">
+
+<style>
+    /* Tablonun daha okunaklı olması için fontu küçült */
+    #data-table {
+        font-size: 0.85rem;
+    }
+    
+
+    /* --- YENİ KURAL EKLEYİN --- */
+    /* Sütunların alta kaymasını (wrap) engelle,
+       böylece yatay kaydırmaya (scrollX) zorla */
+    #data-table th,
+    #data-table td {
+        white-space: nowrap;
+    }
+    /* --- GÖRÜNÜR SCROLLBAR KODU --- */
+
+    /* DataTables'ın kaydırma işlemini yaptığı div'i hedefler */
+    .dataTables_scrollBody {
+        /* Firefox için */
+        scrollbar-width: thin;
+        scrollbar-color: #888 #f1f1f1;
+    }
+
+    /* Webkit tarayıcılar (Chrome, Safari, Mobil) ve Windows/Chrome için */
+    .dataTables_scrollBody::-webkit-scrollbar {
+        height: 10px; /* Yatay scrollbar'ın kalınlığı */
+        width: 10px;  /* Dikey scrollbar'ın kalınlığı */
+    }
+
+    /* Scrollbar'ın arka planı (yol) */
+    .dataTables_scrollBody::-webkit-scrollbar-track {
+        background: #f1f1f1;
+    }
+
+    /* Kaydırma çubuğunun kendisi (tutamak) */
+    .dataTables_scrollBody::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 5px;
+    }
+
+    /* Üzerine gelince */
+    .dataTables_scrollBody::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+    /* --- YENİ KOD BİTTİ --- */
+</style>
+
+<h2>Veri Gözlemcisi (Bellek Önizlemesi)</h2>
+<p>Uygulamanın şu anda bellekte (RAM) kullandığı CSV dosyalarının içeriğini buradan görebilirsiniz.<br>
+   Bu tabloyu arayabilir, sıralayabilir ve sayfalarına göz atabilirsiniz.</p>
+
+<div class="list-group list-group-horizontal-sm mb-3">
+    <a href="{{ url_for('route_browse_data', file='oyuncu_mac') }}" 
+       class="list-group-item list-group-item-action {% if file_name == 'oyuncu_mac_performanslari.csv' %}active{% endif %}">
+        Oyuncu Maç Performansları
+    </a>
+    <a href="{{ url_for('route_browse_data', file='oyuncu_sezon') }}" 
+       class="list-group-item list-group-item-action {% if file_name == 'oyuncu_sezon_istatistikleri.csv' %}active{% endif %}">
+        Oyuncu Sezon İstatistikleri
+    </a>
+    <a href="{{ url_for('route_browse_data', file='takim_mac') }}" 
+       class="list-group-item list-group-item-action {% if file_name == 'maclar.csv' %}active{% endif %}">
+        Takım Maçları (maclar.csv)
+    </a>
+</div>
+
+{% if file_name %}
+    <div class="alert alert-info">
+        Görüntülenen dosya: <b>{{ file_name }}</b><br>
+        Toplam boyut (Bellekte): <b>{{ data_shape[0] }} satır</b>, <b>{{ data_shape[1] }} sütun</b>
+    </div>
+
+    <table id="data-table" class="table table-striped table-bordered table-sm" style="width:100%">
+        <thead>
+            <tr>
+                {% for col_name in column_names %}
+                    <th>{{ col_name }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            </tbody>
+    </table>
+
+{% else %}
+    <div class="alert alert-secondary">
+        Lütfen görüntülemek için yukarıdaki veri kaynaklarından birini seçin.
+    </div>
+{% endif %}
+
+{% endblock %}
+
+
+{% block scripts %}
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/2.1.0/js/dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/2.1.0/js/dataTables.bootstrap5.min.js"></script>
+<script src="https://cdn.datatables.net/responsive/3.0.2/js/dataTables.responsive.min.js"></script>
+<script src="https://cdn.datatables.net/responsive/3.0.2/js/responsive.bootstrap5.min.js"></script>
+
+
+<script>
+    
+    $(document).ready(function() {
+        
+        let columns_for_datatable;
+        let column_names_list; // <-- Sütun listesini dışarıda tanımla
+        
+        // Python'dan (app.py) gelen değişkenler
+        let lang_url = "{{ datatable_lang_url | safe }}"; 
+        let file_key = "{{ current_file_key | safe }}"; // Örn: 'oyuncu_mac'
+        
+        // 1. Eğer Python'dan bir 'file_key' gelmediyse (yani /browse-data ana sayfasıysa)
+        // DataTables'ı başlatmaya gerek yok.
+        if (!file_key) {
+            console.log("DataTables: Görüntülenecek bir dosya seçilmedi.");
+            return; // Kodu çalıştırmayı durdur
+        }
+
+        try {
+            // 2. Sütun listesini Python'dan alıp DataTables formatına çevir
+            column_names_list = JSON.parse('{{ column_names_json | safe }}');
+            
+            // [{ "data": "PLAYER_NAME" }, { "data": "PTS" }, ...] formatına çevir
+            columns_for_datatable = column_names_list.map(function(col_name) {
+                return { "data": col_name };
+            });
+
+        } catch (e) {
+            console.error("DataTables: Sütun listesi (column_names_json) parse edilemedi.", e);
+            return; // Sütunlar olmadan tablo başlatılamaz
+        }
+
+        // --- YENİ KOD BAŞLANGICI: Varsayılan Sıralamayı Ayarla ---
+        
+        let default_order = []; // Varsayılan: sıralama yok (CSV sırası)
+        
+        // 'GAME_DATE' sütununun bu CSV'deki indeks numarasını bul
+        let gameDateIndex = -1;
+        if (column_names_list) {
+             gameDateIndex = column_names_list.indexOf("GAME_DATE");
+        }
+
+        // Eğer 'GAME_DATE' sütunu bulunduysa (örn: oyuncu_mac veya takim_mac)
+        // [ [index, 'desc'] ] formatında sıralama kuralını oluştur
+        if (gameDateIndex > -1) {
+            default_order = [
+                [gameDateIndex, 'desc'] // 'desc' = descending (azalan, yani en yeni en üstte)
+            ];
+            console.log(`DataTables: Varsayılan sıralama 'GAME_DATE' (index: ${gameDateIndex}) olarak ayarlandı.`);
+        } else {
+            // (örn: oyuncu_sezon dosyasında GAME_DATE yoktur)
+            console.log("DataTables: 'GAME_DATE' sütunu bulunamadı, varsayılan sıralama (CSV sırası) kullanılacak.");
+        }
+        // --- YENİ KOD BİTTİ ---
+
+
+        // 3. DataTables'ı başlat
+        $('#data-table').DataTable({
+            
+            // --- YENİ AJAX AYARLARI ---
+            "ajax": {
+                "url": `/api/get_data/${file_key}`, 
+                "type": "GET",
+                "dataSrc": "data" 
+            },
+            
+            "processing": true,  
+            "columns": columns_for_datatable, 
+            
+            // --- YENİ SATIR: 'order' parametresini buraya ekle ---
+            "order": default_order,
+            // --------------------------------------------------
+            
+            // --- ESKİ AYARLAR (Aynı kalabilir) ---
+            paging: true,
+            searching: true,
+            lengthMenu: [ [10, 25, 50, 100, -1], [10, 25, 50, 100, "Tümü"] ],
+            pageLength: 25,
+            responsive: false,
+            scrollX: true, // Çok sütun varsa yatayda kaydırmayı aç
+            
+            language: {
+                "url": lang_url
+            }
+        });
+        
+    });
+</script>
+{% endblock %}

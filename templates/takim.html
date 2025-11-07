@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<form action="/takim-analizi" method="POST">
+    <div class="row">
+        <div class="col-lg-4 col-md-5 mb-3">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">Kontrol Paneli</h5>
+                    
+                    <div class="mb-3">
+                        <label for="team_name" class="form-label">Takım Seçin:</label>
+                        <select class="form-select" name="team_name" id="team_name" required>
+                            {% for team in teams %}
+                                <option value="{{ team }}" 
+                                        {% if team == selected_team %}selected{% endif %}>
+                                    {{ team }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="threshold" class="form-label">Sayı Eşiği (PTS):</label>
+                        <input type="number" step="0.5" class="form-control" 
+                               name="threshold" id="threshold" 
+                               value="{{ selected_threshold | default('105.5', true) }}">
+                    </div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg p-3">
+                            TAKIMI ANALİZ ET
+                        </button>
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8 col-md-7">
+            <h5>Analiz Sonuçları</h5>
+            <pre class="form-control analysis-report">
+{% if report_string %}
+{{ report_string }}
+{% else %}
+Lütfen analiz etmek için bir takım seçin ve butona basın...
+{% endif %}
+            </pre>
+        </div>
+    </div>
+</form>
+
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<form action="/oyuncu-analizi" method="POST">
+    <div class="row">
+        <div class="col-lg-4 col-md-5 mb-3">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">Kontrol Paneli</h5>
+                    
+                    <div class="mb-3">
+                        <label for="player_name" class="form-label">Oyuncu Seçin:</label>
+                        <select class="form-select" name="player_name" id="player_name" required>
+                            {% for player in players %}
+                                <option value="{{ player }}"
+                                        {% if player == selected_player %}selected{% endif %}>
+                                    {{ player }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="middle_barem" class="form-label">Orta Barem (PTS):</label>
+                        <input type="number" step="0.5" class="form-control" 
+                               name="middle_barem" id="middle_barem" 
+                               value="{{ selected_barem | default('18.5', true) }}">
+                    </div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg p-3">
+                            OYUNCUYU (ARALIK) ANALİZ ET
+                        </button>
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8 col-md-7">
+            <h5>Aralık Analizi Sonuçları</h5>
+            <pre class="form-control analysis-report">
+{% if report_string %}
+{{ report_string }}
+{% else %}
+Lütfen analiz etmek için bir oyuncu seçin ve butona basın...
+{% endif %}
+            </pre>
+        </div>
+    </div>
+</form>
+
+{% endblock %}
