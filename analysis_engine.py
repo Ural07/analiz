@@ -413,7 +413,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         report_lines.append(f"NBA.com'dan {today_str} fikstürü çekiliyor...")
         
         time.sleep(1.0) # API'yi yavaşlat
-        scoreboard = scoreboardv2.ScoreboardV2(game_date=today_str, league_id='00', timeout=60)
+        scoreboard = scoreboardv2.ScoreboardV2(game_date=today_str, league_id='00', timeout=180)
         games_df = scoreboard.game_header.get_data_frame() 
         
         # CSV Sakatlık Okuma
