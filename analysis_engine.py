@@ -7,11 +7,8 @@ from nba_api.stats.endpoints import scoreboardv2
 import traceback
 import requests  # Proxy hata yakalama için
 
-# --- !!! YENİ VE ÖNEMLİ IMPORT !!! ---
-# nba_api'nin proxy'leri yöneten HTTP kütüphanesini içe aktar
-from nba_api.library.http import NBAStatsHTTP
-# --- !!! BİTTİ !!! ---
-
+# Hatalı olan 'from nba_api.library.http import NBAStatsHTTP' satırı
+# bu sürümden TAMAMEN KALDIRILDI.
 
 # ========================================================================
 # === ANALYZE_STREAKS (Sürüm 3.7 - Ortalamaya Dönüş Mantığı) ===
@@ -424,6 +421,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         #"http://PROXY_10_BURAYA_YAPISTIRIN",
     ]
 
+
     # --- 2. Sahte Tarayıcı Kimliği (Headers) ---
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
@@ -434,6 +432,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
     }
     
     proxy_ip_port = "Bilinmiyor" # Loglama için
+    proxy_url = None # Kullanılacak proxy'yi saklamak için
     
     try:
         # 1. Adım: Fikstür ve Sakatlık Verilerini Çek
@@ -453,44 +452,36 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         
         # Proxy listesinden "placeholder" (doldurulmamış) olanları temizle
         filled_proxies = [p for p in WEBSHARE_PROXY_LIST if "PROXY_" not in p]
+        
         if not filled_proxies:
             report_lines.append("UYARI: Proxy listeniz (WEBSHARE_PROXY_LIST) doldurulmamış.")
             report_lines.append("   -> Proxy olmadan (Render IP'si ile) deneniyor...")
-            # Proxy'siz denemeye izin ver, ancak headers ile
-            NBAStatsHTTP.proxies = None # Global proxy'yi temizle
         else:
             report_lines.append(f"{len(filled_proxies)} adet proxy'den rastgele biri seçilecek...")
             
             # Listeden rastgele bir proxy seç
             proxy_url = random.choice(filled_proxies)
-            proxies_dict = {
-                'http': proxy_url,
-                'https': proxy_url,
-            }
             
             if '@' in proxy_url: proxy_ip_port = proxy_url.split('@')[-1]
             elif '//' in proxy_url: proxy_ip_port = proxy_url.split('//')[-1]
             report_lines.append(f"Proxy deneniyor: {proxy_ip_port}")
-            
-            # --- !!! DEĞİŞİKLİK BURADA !!! ---
-            # Proxy'yi 'nba_api' kütüphanesine global olarak ata
-            NBAStatsHTTP.proxies = proxies_dict
-            # --- !!! DEĞİŞİKLİK BİTTİ !!! ---
 
         
         time.sleep(1.0) # API'yi yavaşlat
 
         # --- 3. API ÇAĞRISI (Proxy + Headers ile) ---
         try:
-            # API çağrısını 'proxies' parametresi OLMADAN yap
-            # Kütüphane, global olarak atadığımız proxy'yi kendi kullanacak
+            # --- !!! ASIL DÜZELTME BURADA !!! ---
+            # Parametrenin adı 'proxies' (sözlük) değil, 'proxy' (tekil string)
+            # Eğer proxy_url = None ise (yani liste boşsa), kütüphane proxy kullanmaz.
             scoreboard = scoreboardv2.ScoreboardV2(
                 game_date=today_str, 
                 league_id='00', 
                 timeout=timeout_seconds,
-                headers=headers
-                # 'proxies=...' SATIRI BURADAN SİLİNDİ!
+                headers=headers,
+                proxy=proxy_url  # <-- 'proxies=...' DEĞİL, BU! (proxy_url None olabilir)
             )
+            # --- !!! DÜZELTME BİTTİ !!! ---
             
         except requests.exceptions.Timeout:
             report_lines.append(f"KRİTİK HATA: Proxy ({proxy_ip_port}) veya NBA.com zaman aşımına uğradı (Timeout).")
@@ -503,17 +494,20 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
             report_lines.append("   -> Başka bir proxy denemek için 'Oyuncu Listesi Al'a tekrar basın.")
             return report_lines, None, today_str, None, None
             
+        except TypeError as e:
+            # Eğer 'proxy' parametresi hala hata verirse (eski nba-api sürümü demektir)
+            if "unexpected keyword argument" in str(e):
+                report_lines.append(f"KRİTİK HATA (Kodlama): 'proxy' parametresi 'nba-api' sürümünüzle uyumsuz.")
+                report_lines.append(f"   -> Hata: {e}")
+                report_lines.append(f"   -> Lütfen Render'da 'Clear build cache & deploy' yapın.")
+            else:
+                report_lines.append(f"KRİTİK HATA (TypeError): {e}")
+            return report_lines, None, today_str, None, None
+
         except Exception as e:
             report_lines.append(f"KRİTİK HATA (Proxy/API): {e}")
             report_lines.append(f"   -> Denenen Proxy: {proxy_ip_port}")
             return report_lines, None, today_str, None, None
-        
-        finally:
-            # --- !!! YENİ VE ÖNEMLİ ADIM !!! ---
-            # İsteğin başarılı veya başarısız olması fark etmez,
-            # gelecekteki istekleri (veya veri_cek.py'yi) etkilememesi için proxy'yi temizle
-            NBAStatsHTTP.proxies = None
-            # --- !!! BİTTİ !!! ---
         
         # --- GÜNCELLEME BİTTİ ---
         
@@ -637,10 +631,6 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
     except Exception as e:
         report_lines.append(f"KRİTİK HATA: {e}")
         report_lines.append(f"Hata Detayı: {traceback.format_exc()}")
-        
-        # Proxy'yi her durumda temizle
-        NBAStatsHTTP.proxies = None
-        
         return report_lines, None, None, None, None
 
 # ========================================================================
