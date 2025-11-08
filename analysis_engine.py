@@ -5,7 +5,13 @@ from datetime import datetime, timedelta
 import time
 from nba_api.stats.endpoints import scoreboardv2
 import traceback
-import requests  # <-- Proxy hata yakalama için eklendi
+import requests  # Proxy hata yakalama için
+
+# --- !!! YENİ VE ÖNEMLİ IMPORT !!! ---
+# nba_api'nin proxy'leri yöneten HTTP kütüphanesini içe aktar
+from nba_api.library.http import NBAStatsHTTP
+# --- !!! BİTTİ !!! ---
+
 
 # ========================================================================
 # === ANALYZE_STREAKS (Sürüm 3.7 - Ortalamaya Dönüş Mantığı) ===
@@ -386,12 +392,10 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 
 # ========================================================================
 # === HİBRİT ANALİZ - ADIM 1: OYUNCULARI AL ===
-# (b40.py'nin 'run_daily_analysis' fonksiyonunun ilk yarısı)
 # ========================================================================
 
 # <-- !!! GÜNCELLEME BURADA BAŞLIYOR !!! -->
 
-# ÖNCEKİ KONUŞMADAKİ 'Parametre Kayması' HATASINI GİDERMEK İÇİN FONKSİYON İMZASI DÜZELTİLDİ:
 def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=60):
     """
     API'den fikstürü çeker, aktif oyuncuları (bu sezon >= 3 maç) filtreler,
@@ -400,36 +404,38 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
     Proxy (Webshare) ve Headers (Tarayıcı Kimliği) kullanacak şekilde güncellendi.
     """
     
-    report_lines = [] # Kullanıcıya gösterilecek log metni
+    report_lines = [] 
     TOP_N_PLAYERS_PER_TEAM = 5
     
+    # --- 1. Webshare Proxy Listeniz ---
+    # Buraya Webshare'in size verdiği 10 adet proxy'yi yapıştırın.
+    # Format: 'http://KULLANICIADI:SIFRE@IP:PORT'
+    
+    WEBSHARE_PROXY_LIST = [
+        "http://zuysrbid:02k84bf9gqi1@216.10.27.159:6837", # Örnek: "http://abc:123@1.2.3.4:8080"
+        #"http://PROXY_2_BURAYA_YAPISTIRIN",
+        #"http://PROXY_3_BURAYA_YAPISTIRIN",
+        #"http://PROXY_4_BURAYA_YAPISTIRIN",
+        #"http://PROXY_5_BURAYA_YAPISTIRIN",
+        #"http://PROXY_6_BURAYA_YAPISTIRIN",
+        #"http://PROXY_7_BURAYA_YAPISTIRIN",
+        #"http://PROXY_8_BURAYA_YAPISTIRIN",
+        #"http://PROXY_9_BURAYA_YAPISTIRIN",
+        #"http://PROXY_10_BURAYA_YAPISTIRIN",
+    ]
+
+    # --- 2. Sahte Tarayıcı Kimliği (Headers) ---
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Accept': 'application/json; charset=utf-8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.nba.com/',
+        'Origin': 'https://www.nba.com'
+    }
+    
+    proxy_ip_port = "Bilinmiyor" # Loglama için
+    
     try:
-        # --- 1. Webshare Proxy Listeniz ---
-        # Buraya Webshare'in size verdiği 10 adet proxy'yi yapıştırın.
-        # Format: 'http://KULLANICIADI:SIFRE@IP:PORT'
-        
-        WEBSHARE_PROXY_LIST = [
-            "http://zuysrbid:02k84bf9gqi1@216.10.27.159:6837", # Örnek: "http://abc:123@1.2.3.4:8080"
-            #"http://PROXY_2_BURAYA_YAPISTIRIN",
-            #"http://PROXY_3_BURAYA_YAPISTIRIN",
-            #"http://PROXY_4_BURAYA_YAPISTIRIN",
-            #"http://PROXY_5_BURAYA_YAPISTIRIN",
-            #"http://PROXY_6_BURAYA_YAPISTIRIN",
-            #"http://PROXY_7_BURAYA_YAPISTIRIN",
-            #"http://PROXY_8_BURAYA_YAPISTIRIN",
-            #"http://PROXY_9_BURAYA_YAPISTIRIN",
-            #"http://PROXY_10_BURAYA_YAPISTIRIN",
-        ]
-
-        # --- 2. Sahte Tarayıcı Kimliği (Headers) ---
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-            'Accept': 'application/json; charset=utf-8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://www.nba.com/',
-            'Origin': 'https://www.nba.com'
-        }
-
         # 1. Adım: Fikstür ve Sakatlık Verilerini Çek
         report_lines.append(f"Analiz başladı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -444,37 +450,46 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         today_str = target_date.strftime('%Y-%m-%d')
 
         report_lines.append(f"NBA.com'dan {today_str} fikstürü çekiliyor...")
-        report_lines.append(f"{len(WEBSHARE_PROXY_LIST)} adet proxy'den rastgele biri seçilecek...")
         
-        time.sleep(1.0) # API'yi yavaşlat
-
-        # --- 3. API ÇAĞRISI (Proxy + Headers ile) ---
-        try:
-            # Listeden rastgele bir proxy seç
-            proxy_url = random.choice(WEBSHARE_PROXY_LIST)
+        # Proxy listesinden "placeholder" (doldurulmamış) olanları temizle
+        filled_proxies = [p for p in WEBSHARE_PROXY_LIST if "PROXY_" not in p]
+        if not filled_proxies:
+            report_lines.append("UYARI: Proxy listeniz (WEBSHARE_PROXY_LIST) doldurulmamış.")
+            report_lines.append("   -> Proxy olmadan (Render IP'si ile) deneniyor...")
+            # Proxy'siz denemeye izin ver, ancak headers ile
+            NBAStatsHTTP.proxies = None # Global proxy'yi temizle
+        else:
+            report_lines.append(f"{len(filled_proxies)} adet proxy'den rastgele biri seçilecek...")
             
-            # Seçilen proxy'yi kullanmak için sözlük oluştur
+            # Listeden rastgele bir proxy seç
+            proxy_url = random.choice(filled_proxies)
             proxies_dict = {
                 'http': proxy_url,
                 'https': proxy_url,
             }
             
-            # Loglara hangi proxy'nin denendiğini yaz (şifreyi gizleyerek)
-            proxy_ip_port = "Bilinmiyor"
-            if '@' in proxy_url:
-                proxy_ip_port = proxy_url.split('@')[-1]
-            elif '//' in proxy_url:
-                 proxy_ip_port = proxy_url.split('//')[-1]
-            
+            if '@' in proxy_url: proxy_ip_port = proxy_url.split('@')[-1]
+            elif '//' in proxy_url: proxy_ip_port = proxy_url.split('//')[-1]
             report_lines.append(f"Proxy deneniyor: {proxy_ip_port}")
+            
+            # --- !!! DEĞİŞİKLİK BURADA !!! ---
+            # Proxy'yi 'nba_api' kütüphanesine global olarak ata
+            NBAStatsHTTP.proxies = proxies_dict
+            # --- !!! DEĞİŞİKLİK BİTTİ !!! ---
 
-            # API çağrısını hem headers, hem timeout, hem de proxies ile yap
+        
+        time.sleep(1.0) # API'yi yavaşlat
+
+        # --- 3. API ÇAĞRISI (Proxy + Headers ile) ---
+        try:
+            # API çağrısını 'proxies' parametresi OLMADAN yap
+            # Kütüphane, global olarak atadığımız proxy'yi kendi kullanacak
             scoreboard = scoreboardv2.ScoreboardV2(
                 game_date=today_str, 
                 league_id='00', 
-                timeout=timeout_seconds, # Bu app.py'den 60 olarak geliyor
-                headers=headers,
-                proxies=proxies_dict  # <-- PROXY'Yİ BURADA KULLAN
+                timeout=timeout_seconds,
+                headers=headers
+                # 'proxies=...' SATIRI BURADAN SİLİNDİ!
             )
             
         except requests.exceptions.Timeout:
@@ -489,14 +504,16 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
             return report_lines, None, today_str, None, None
             
         except Exception as e:
-            # Proxy listesi boşsa veya formatı bozuksa burası çalışır
-            if "WEBSHARE_PROXY_LIST" in str(e):
-                report_lines.append("KRİTİK HATA: Proxy listeniz (WEBSHARE_PROXY_LIST) boş veya hatalı.")
-                report_lines.append("   -> Lütfen listenizi 'http://kullanici:sifre@ip:port' formatında doldurun.")
-            else:
-                report_lines.append(f"KRİTİK HATA (Proxy/API): {e}")
-                report_lines.append(f"   -> Denenen Proxy: {proxy_ip_port}")
+            report_lines.append(f"KRİTİK HATA (Proxy/API): {e}")
+            report_lines.append(f"   -> Denenen Proxy: {proxy_ip_port}")
             return report_lines, None, today_str, None, None
+        
+        finally:
+            # --- !!! YENİ VE ÖNEMLİ ADIM !!! ---
+            # İsteğin başarılı veya başarısız olması fark etmez,
+            # gelecekteki istekleri (veya veri_cek.py'yi) etkilememesi için proxy'yi temizle
+            NBAStatsHTTP.proxies = None
+            # --- !!! BİTTİ !!! ---
         
         # --- GÜNCELLEME BİTTİ ---
         
@@ -517,7 +534,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
 
         if games_df.empty:
             report_lines.append(f"Seçilen tarih ({today_str}) için oynanacak maç bulunamadı.")
-            return report_lines, None, today_str, None, None # Hata tuple'ını düzelt
+            return report_lines, None, today_str, None, None 
 
         report_lines.append(f"Fikstür çekildi. {len(games_df)} maç bulundu.")
         
@@ -555,20 +572,14 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         CURRENT_SEASON_START_DATE = '2025-09-01' 
         if df_oyuncu_sezon.empty:
             report_lines.append(f"HATA: 'oyuncu_sezon_istatistikleri' tablosu boş.")
-            return report_lines, None, today_str, None, None # Hata tuple'ı
+            return report_lines, None, today_str, None, None 
 
-        # --- DÜZELTME: df_oyuncu_mac GP filtresi için KULLANILMIYOR ---
-        # GP (Oynanan Maç) filtresi 'df_oyuncu_sezon' üzerinden yapılmalı.
-        # df_oyuncu_mac, oyuncu maç geçmişi analizleri (analyze_streaks) için kullanılır.
-        # Bu fonksiyonun amacı SADECE fikstürü çekmek ve Top 5 listesini oluşturmaktır.
-        
-        # 'oyuncu_sezon_istatistikleri' tablosundan GP'ye göre filtrele
         active_player_ids = set(df_oyuncu_sezon[df_oyuncu_sezon['GP'] >= 3]['PLAYER_ID'])
         
         
         if not active_player_ids:
             report_lines.append(f"HATA: '{CURRENT_SEASON_START_DATE}' tarihinden sonra 3'ten fazla maç (GP >= 3) oynamış kimse bulunamadı.")
-            return report_lines, None, today_str, None, None # Hata tuple'ı
+            return report_lines, None, today_str, None, None 
 
         report_lines.append(f"CSV Filtresi: '{CURRENT_SEASON_START_DATE}' sonrası {len(active_player_ids)} aktif oyuncu (GP >= 3) bulundu.")
         
@@ -598,7 +609,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         
         if key_players_df.empty:
             report_lines.append("Hata: Fikstürdeki takımlar, 'oyuncu_sezon_istatistikleri.csv' dosyanızdaki (GP >= 3 olan ve aktif) hiçbir oyuncuyla eşleşmedi.")
-            return report_lines, None, today_str, None, None # Hata tuple'ı
+            return report_lines, None, today_str, None, None 
         
         key_players_df['MIN_PER_GAME'] = key_players_df.apply(
             lambda row: row['MIN'] / row['GP'] if row['GP'] > 0 else 0,
@@ -626,11 +637,14 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
     except Exception as e:
         report_lines.append(f"KRİTİK HATA: {e}")
         report_lines.append(f"Hata Detayı: {traceback.format_exc()}")
+        
+        # Proxy'yi her durumda temizle
+        NBAStatsHTTP.proxies = None
+        
         return report_lines, None, None, None, None
 
 # ========================================================================
 # === HİBRİT ANALİZ - ADIM 2: BAREMLERİ ANALİZ ET ===
-# (b40.py'nin 'run_daily_analysis' fonksiyonunun ikinci yarısı)
 # ========================================================================
 def run_full_analysis_logic(
     baremler, # Kullanıcıdan gelen (player_name, middle_barem) listesi
@@ -660,8 +674,6 @@ def run_full_analysis_logic(
     # Dünün tarihini al (B2B kontrolü için)
     today_date_obj = datetime.strptime(today_str, '%Y-%m-%d').date()
     yesterday_date_obj = today_date_obj - timedelta(days=1)
-    # (Not: Bu, API'den alınan 'target_date'yi kullanmalı, ancak basitlik
-    # için şimdilik 'now' kullanıyoruz. Zaten Adım 1'de saat farkı düzeltiliyor)
             
     # (Sürüm 4.0 - Çift Döngü)
     for (player_name, middle_barem) in baremler:
@@ -933,11 +945,6 @@ def run_full_analysis_logic(
 
 # ========================================================================
 # === BACKTEST LOGIC (Sürüm 5.0) ===
-# (b40.py'deki 'run_backtest' ve 'run_total_backtest' mantığı)
-# ========================================================================
-# ========================================================================
-# === BACKTEST LOGIC (Sürüm 5.0) ===
-# (b40.py'deki 'run_backtest' ve 'run_total_backtest' mantığı)
 # ========================================================================
 def run_backtest_logic(log_data, df_mac_results, min_prob):
     """
