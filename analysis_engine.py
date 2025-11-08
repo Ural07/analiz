@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import time
 from nba_api.stats.endpoints import scoreboardv2
 import traceback
+import requests
 
 # ========================================================================
 # === ANALYZE_STREAKS (Sürüm 3.7 - Ortalamaya Dönüş Mantığı) ===
@@ -431,14 +432,71 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         # --- YENİ KOD BİTTİ ---
         
         # --- DEĞİŞEN SATIR ---
-        scoreboard = scoreboardv2.ScoreboardV2(
-            game_date=today_str, 
-            league_id='00', 
-            timeout=timeout_seconds,
-            headers=headers  # <-- BU ÇOK ÖNEMLİ
-        )
+        #scoreboard = scoreboardv2.ScoreboardV2(
+        #    game_date=today_str, 
+        #    league_id='00', 
+        #    timeout=timeout_seconds,
+        #    headers=headers  # <-- BU ÇOK ÖNEMLİ
+        #)
         # --- DEĞİŞİKLİK BİTTİ ---
+        # --- !! ÇÖZÜM BURADA: PROXY (VEKİL SUNUCU) !! ---
+        # Render'ın IP'si engellendiyse, dışarıdan bir IP kullanmalıyız.
+        # NOT: Ücretsiz proxy'ler %99 oranında YAVAŞTIR, GÜVENİLMEZDİR veya ÇALIŞMAZ.
+        # Bu sorunu kalıcı olarak çözmek için ücretli bir proxy servisi
+        # (örn: BrightData, Smartproxy, Webshare.io) kullanmanız gerekebilir.
+        
+        # Aşağıdaki adresi bir ücretsiz listeden örnek olarak ekliyorum.
+        # Muhtemelen bu da çalışmayacak, çalışan bir tane bulmanız gerekecek.
+        # Format: 'http://IP_ADRESI:PORT'
+        # Veya 'http://KULLANICIADI:SIFRE@IP_ADRESI:PORT'
+        
+        # --- DEĞİŞTİRİLECEK ALAN ---
+        # Lütfen buraya GÜNCEL ve ÇALIŞAN bir proxy adresi girin
+        # (Google'da "free proxy list" aratabilirsiniz, ancak şansınız düşük)
+        proxy_url = 'http://50.173.14.151:80' # ÖRNEK (Muhtemelen çalışmıyor)
+        # --- DEĞİŞTİRİLECEK ALAN BİTTİ ---
+
+        proxies_dict = {
+            'http': proxy_url,
+            'https': proxy_url,
+        }
+        report_lines.append(f"Proxy kullanılıyor: {proxy_url}")
+        
+        # --- DEĞİŞEN SATIR ---
+        try:
+            # Hem headers, hem timeout, hem de proxies parametrelerini ekliyoruz
+            # (timeout_seconds'ı 1000 değil, 60'ta tutun. Proxy yavaşsa bile 60 sn yeterlidir)
+            scoreboard = scoreboardv2.ScoreboardV2(
+                game_date=today_str, 
+                league_id='00', 
+                timeout=timeout_seconds, # Bu 60 olarak kalsın
+                headers=headers,
+                proxies=proxies_dict  # <-- PROXY'Yİ BURADA KULLAN
+            )
+            
+        except requests.exceptions.Timeout:
+            # Proxy'nin kendisi zaman aşımına uğrarsa
+            report_lines.append(f"KRİTİK HATA: Proxy ({proxy_url}) veya NBA.com zaman aşımına uğradı (Timeout).")
+            report_lines.append("   -> Lütfen çalışan YENİ bir proxy adresi deneyin.")
+            return report_lines, None, today_str, None, None
+            
+        except requests.exceptions.ConnectionError:
+            # Proxy'ye hiç bağlanamazsa
+            report_lines.append(f"KRİTİK HATA: Proxy'ye ({proxy_url}) bağlanılamadı (ConnectionError).")
+            report_lines.append("   -> Proxy adresi muhtemelen kapalı veya yanlış.")
+            return report_lines, None, today_str, None, None
+            
+        except Exception as e:
+            # Diğer tüm hatalar
+            report_lines.append(f"KRİTİK HATA (Proxy/API): {e}")
+            report_lines.append(f"   -> Proxy ({proxy_url}) çalışmıyor veya NBA.com API'si çöktü.")
+            return report_lines, None, today_str, None, None
+        
+        # --- DEĞİŞİKLİK BİTTİ ---
+
+
         games_df = scoreboard.game_header.get_data_frame() 
+
         
         # CSV Sakatlık Okuma
         try:
