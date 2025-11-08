@@ -1,4 +1,4 @@
-from nba_api.library.http import NBAStatsHTTP
+
 import pandas as pd
 import numpy as np
 import random
@@ -414,6 +414,11 @@ def get_players_for_hybrid_analysis(df_oyuncu_sezon, nba_team_id_to_abbr, timeou
         report_lines.append(f"NBA.com'dan {today_str} fikstürü çekiliyor...")
         
         time.sleep(1.0) # API'yi yavaşlat
+        # --- YENİ KOD: Proxy (Vekil Sunucu) Ayarı ---
+    # NBA API'ye, Render'ın IP'si engellendiyse
+    # ücretsiz bir vekil sunucu kullanmasını emrediyoruz.
+
+    # --- YENİ KOD BİTTİ ---
         scoreboard = scoreboardv2.ScoreboardV2(game_date=today_str, league_id='00', timeout=timeout_seconds)
         # --- YENİ KOD: Sahte Tarayıcı Kimliği ---
         headers = {
@@ -430,7 +435,8 @@ def get_players_for_hybrid_analysis(df_oyuncu_sezon, nba_team_id_to_abbr, timeou
         scoreboard = scoreboardv2.ScoreboardV2(
             game_date=today_str, 
             league_id='00', 
-            timeout=timeout_seconds
+            timeout=timeout_seconds,
+            headers=headers
         )
         # --- DEĞİŞİKLİK BİTTİ ---
         games_df = scoreboard.game_header.get_data_frame() 
