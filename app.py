@@ -36,6 +36,8 @@ if DATABASE_URL is None:
     print("KRİTİK HATA: .env dosyasında DATABASE_URL bulunamadı.")
     exit()
 try:
+    pool_pre_ping = True
+    pool_recycle = 300
     engine = create_engine(DATABASE_URL)
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))

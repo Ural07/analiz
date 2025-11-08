@@ -13,7 +13,7 @@ if DATABASE_URL is None:
     print("KRİTİK HATA: .env dosyasında DATABASE_URL bulunamadı.")
     exit()
 try:
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
     print("Bulut (Neon) Veritabanı bağlantısı başarılı.")
