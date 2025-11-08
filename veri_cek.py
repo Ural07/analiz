@@ -13,7 +13,6 @@ headers = {
     'Accept': 'application/json; charset=utf-8',
     'Accept-Language': 'en-US,en;q=0.9',
     'Referer': 'https://www.nba.com/',
-    'Connection': 'keep-alive',
     'Origin': 'https://www.nba.com'
 }
 # === BİTTİ ===

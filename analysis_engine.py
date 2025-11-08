@@ -426,7 +426,6 @@ def get_players_for_hybrid_analysis(df_oyuncu_sezon, nba_team_id_to_abbr, timeou
             'Accept': 'application/json; charset=utf-8',
             'Accept-Language': 'en-US,en;q=0.9',
             'Referer': 'https://www.nba.com/',
-            'Connection': 'keep-alive',
             'Origin': 'https://www.nba.com'
         }
         # --- YENİ KOD BİTTİ ---
