@@ -7,6 +7,16 @@ from sqlalchemy import create_engine, text # PostgreSQL (Neon) bağlantısı iç
 from nba_api.stats.static import teams, players
 from nba_api.stats.endpoints import leaguegamefinder, leaguedashplayerstats, leaguegamelog
 
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'Accept': 'application/json; charset=utf-8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://www.nba.com/',
+    'Connection': 'keep-alive',
+    'Origin': 'https://www.nba.com'
+}
+# === BİTTİ ===
+
 # --- AYARLAR ---
 GECEN_SEZON = '2024-25'  
 BU_SEZON = '2025-26'      
@@ -56,7 +66,7 @@ def takimlari_getir():
 def oyunculari_getir():
     print("\n--- Aktif oyuncu listesi çekiliyor... ---")
     try:
-        gelen_oyuncular_listesi = players.get_active_players()
+        gelen_oyuncular_listesi = players.get_active_players(headers=headers)
         df_oyuncular = pd.DataFrame(gelen_oyuncular_listesi)
         print(f"Toplam {len(df_oyuncular)} aktif oyuncu bulundu.")
         return df_oyuncular
@@ -68,7 +78,7 @@ def oyunculari_getir():
 def maclari_getir(sezon):
     print(f"\n--- {sezon} Sezonu [Takım] Maçları Çekiliyor... ---")
     try:
-        finder = leaguegamefinder.LeagueGameFinder(season_nullable=sezon)
+        finder = leaguegamefinder.LeagueGameFinder(season_nullable=sezon, headers=headers)
         df_maclar = finder.get_data_frames()[0]
         print(f"Toplam {len(df_maclar)} [takım] maç kaydı bulundu.")
         return df_maclar
@@ -80,7 +90,7 @@ def maclari_getir(sezon):
 def oyuncu_sezon_istatistiklerini_getir(sezon):
     print(f"\n--- {sezon} Sezonu [Oyuncu SEZON] İstatistikleri Çekiliyor... ---")
     try:
-        stats = leaguedashplayerstats.LeagueDashPlayerStats(season=sezon)
+        stats = leaguedashplayerstats.LeagueDashPlayerStats(season=sezon, headers=headers)
         df_istatistikler = stats.get_data_frames()[0]
         print(f"Toplam {len(df_istatistikler)} oyuncunun sezon istatistiği bulundu.")
         return df_istatistikler
@@ -94,7 +104,7 @@ def oyuncu_mac_performanslarini_getir(sezon):
     print("(Bu işlem en uzun süren işlemdir, binlerce satır çekilecek...)")
     try:
         # 'Player' (P) loglarını istiyoruz, 'Team' (T) değil.
-        gamelogs = leaguegamelog.LeagueGameLog(season=sezon, player_or_team_abbreviation='P')
+        gamelogs = leaguegamelog.LeagueGameLog(season=sezon, player_or_team_abbreviation='P', headers=headers)
         df_gamelogs = gamelogs.get_data_frames()[0]
         print(f"Toplam {len(df_gamelogs)} [oyuncu-maç] performansı bulundu.")
         return df_gamelogs

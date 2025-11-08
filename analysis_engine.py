@@ -414,6 +414,25 @@ def get_players_for_hybrid_analysis(df_oyuncu_sezon, nba_team_id_to_abbr, timeou
         
         time.sleep(1.0) # API'yi yavaşlat
         scoreboard = scoreboardv2.ScoreboardV2(game_date=today_str, league_id='00', timeout=timeout_seconds)
+        # --- YENİ KOD: Sahte Tarayıcı Kimliği ---
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Accept': 'application/json; charset=utf-8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://www.nba.com/',
+            'Connection': 'keep-alive',
+            'Origin': 'https://www.nba.com'
+        }
+        # --- YENİ KOD BİTTİ ---
+        
+        # --- DEĞİŞEN SATIR ---
+        scoreboard = scoreboardv2.ScoreboardV2(
+            game_date=today_str, 
+            league_id='00', 
+            timeout=timeout_seconds,
+            headers=headers  # <-- BU PARAMETRE EKLENDİ
+        )
+        # --- DEĞİŞİKLİK BİTTİ ---
         games_df = scoreboard.game_header.get_data_frame() 
         
         # CSV Sakatlık Okuma
