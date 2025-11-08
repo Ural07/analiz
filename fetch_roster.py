@@ -24,7 +24,6 @@ except Exception as e:
 # 2. Gerekli Verileri Belleğe Yükle (analysis_engine'in ihtiyacı var)
 try:
     print("Analiz için 'oyuncu_mac' ve 'oyuncu_sezon' yükleniyor...")
-    df_oyuncu_mac = pd.read_sql_query("SELECT * FROM oyuncu_mac_performanslari", con=engine)
     df_oyuncu_sezon = pd.read_sql_query("SELECT * FROM oyuncu_sezon_istatistikleri", con=engine)
 
     # app.py'den: NBA API Haritasını Yükle
@@ -47,7 +46,7 @@ try:
      today_str, 
      current_season_players_df, 
      csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
-         df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=300
+            df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=300
      )
 
     if top_players_final is None:

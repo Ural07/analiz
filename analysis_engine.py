@@ -387,7 +387,7 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 # === HİBRİT ANALİZ - ADIM 1: OYUNCULARI AL ===
 # (b40.py'nin 'run_daily_analysis' fonksiyonunun ilk yarısı)
 # ========================================================================
-def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=60):
+def get_players_for_hybrid_analysis(df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=60):
     """
     API'den fikstürü çeker, aktif oyuncuları (bu sezon >= 3 maç) filtreler,
     CSV'den sakatları filtreler ve barem girilecek TOP 5 listesini döndürür.
@@ -467,14 +467,12 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         report_lines.append(f"Her takımın en çok süre alan (TOP {TOP_N_PLAYERS_PER_TEAM}) oyuncusu listelenecek...")
 
         CURRENT_SEASON_START_DATE = '2025-09-01' 
-        recent_games = df_oyuncu_mac[df_oyuncu_mac['GAME_DATE'] >= CURRENT_SEASON_START_DATE]
-        
-        if recent_games.empty:
-            report_lines.append(f"HATA: '{CURRENT_SEASON_START_DATE}' tarihinden sonra 'oyuncu_mac_performanslari.csv' dosyasında hiç maç kaydı bulunamadı.")
+        if df_oyuncu_sezon.empty:
+            report_lines.append(f"HATA: 'oyuncu_sezon_istatistikleri' tablosu boş.")
             return report_lines, None, today_str
-            
-        recent_game_counts = recent_games.groupby('PLAYER_ID').size()
-        active_player_ids = set(recent_game_counts[recent_game_counts >= 3].index)
+
+        active_player_ids = set(df_oyuncu_sezon[df_oyuncu_sezon['GP'] >= 3]['PLAYER_ID'])
+        
         
         if not active_player_ids:
             report_lines.append(f"HATA: '{CURRENT_SEASON_START_DATE}' tarihinden sonra 3'ten fazla maç (GP >= 3) oynamış kimse bulunamadı.")
@@ -482,9 +480,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
 
         report_lines.append(f"CSV Filtresi: '{CURRENT_SEASON_START_DATE}' sonrası {len(active_player_ids)} aktif oyuncu (GP >= 3) bulundu.")
         
-        all_season_players_df = df_oyuncu_sezon[
-            df_oyuncu_sezon['PLAYER_ID'].isin(active_player_ids)
-        ].copy()
+        all_season_players_df = df_oyuncu_sezon.copy()
         
         all_season_players_df_sorted = all_season_players_df.sort_values(
             by=['PLAYER_ID', 'GP'], 
