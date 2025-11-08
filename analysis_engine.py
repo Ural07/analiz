@@ -3,15 +3,15 @@ import numpy as np
 import random
 from datetime import datetime, timedelta 
 import time
-from nba_api.stats.endpoints import scoreboardv2
+from nba_api.stats.endpoints import scoreboardv2 # Bunu artık kullanmayacağız ama kalsın
 import traceback
-import requests  # Proxy hata yakalama için
+import requests  # <-- KANITLANMIŞ YÖNTEMİ KULLANMAK İÇİN BU GEREKLİ
 
-# Hatalı olan 'from nba_api.library.http import NBAStatsHTTP' satırı
-# bu sürümden TAMAMEN KALDIRILDI.
+# Hatalı olan 'from nba_api.library.http...' satırı kaldırıldı.
 
 # ========================================================================
 # === ANALYZE_STREAKS (Sürüm 3.7 - Ortalamaya Dönüş Mantığı) ===
+# (Bu fonksiyonda değişiklik yok)
 # ========================================================================
 def analyze_streaks(data, threshold_col, threshold_val):
     if data.empty or threshold_col not in data.columns:
@@ -125,12 +125,14 @@ def analyze_streaks(data, threshold_col, threshold_val):
         prob_body += f"       bunların %{prob_break_pct_float:.1f} kadarı bir sonraki maçta KIRILDI.\n"
         prob_body += f"    >> Bir sonraki maçta serinin kırılarak '{next_type_str}' olasılığı: %{prob_break_pct_float:.1f}\n"
 
-    # Geri dönen değerleri 'comment' yerine 'prob_body' olarak düzeltelim
     return (raw_pattern, total_matches, total_above, avg_above_streak, 
             total_below, avg_below_streak, 
             comment_header, comment_body, prob_header, prob_body,
             current_type_str, prob_break_pct_float, avg_streak, int(current_length)) 
 
+# ========================================================================
+# (Diğer analyze_... fonksiyonlarında değişiklik yok)
+# ========================================================================
 def analyze_wl_streaks(data):
     if data.empty:
         return "Veri yok", 0.0, 0.0
@@ -155,18 +157,8 @@ def analyze_wl_streaks(data):
         summary = f"Mevcut seri: {current_streak['count']} maçtır KAYBEDİYOR."
     return summary, avg_win, avg_loss
 
-# ========================================================================
-# === ANALYZE_TEAM_LOGIC (b40.py'den dönüştürüldü) ===
-# ========================================================================
 def analyze_team_logic(team_name, threshold, df_takim_mac):
-    """
-    analyze_team fonksiyonunun saf Python mantığı.
-    Artık 'self' almaz, DataFram'i argüman olarak alır.
-    Tkinter'a ('add_result') yazmak yerine, bir metin dizisi (string) döndürür.
-    """
-    
-    report_lines = [] # Raporu biriktirmek için bir liste
-    
+    report_lines = [] 
     team_mac_data = df_takim_mac[df_takim_mac['TEAM_NAME'] == team_name].sort_values(by='GAME_DATE')
     total_team_matches = len(team_mac_data)
 
@@ -181,7 +173,6 @@ def analyze_team_logic(team_name, threshold, df_takim_mac):
          report_lines.append("Analiz için yetersiz maç verisi (en az 3 maç gerekli).\n\n")
          return "\n".join(report_lines)
 
-    # --- A. SAYI EŞİK ANALİZİ (RENKLİ) ---
     report_lines.append(f"SAYI EŞİK ANALİZİ (Eşik: {threshold} PTS)")
     report_lines.append("-"*50)
     
@@ -193,7 +184,6 @@ def analyze_team_logic(team_name, threshold, df_takim_mac):
     report_lines.append(f"EŞİK ÜSTÜ (>= {threshold} PTS) SONUÇLARI:")
     report_lines.append(f"  TAKIM {total_m} MAÇTA {total_above} KERE EŞİĞİ GEÇMİŞ.")
     report_lines.append(f"  Tamamlanmış 'Attı' serilerinin ortalama uzunluğu: {avg_a_streak:.2f} maç.\n")
-
     report_lines.append(f"EŞİK ALTI (< {threshold} PTS) SONUÇLARI:")
     report_lines.append(f"  TAKIM {total_m} MAÇTA {total_below} KERE EŞİĞİN ALTINDA KALMIŞ.")
     report_lines.append(f"  Tamamlanmış 'Atamadı' serilerinin ortalama uzunluğu: {avg_b_streak:.2f} maç.\n")
@@ -213,48 +203,29 @@ def analyze_team_logic(team_name, threshold, df_takim_mac):
                 pattern_wrapped += "\n"
     report_lines.append(f"  {pattern_wrapped.strip('-')}\n")
 
-    # --- B. GALİBİYET/MAĞLUBİYET (W/L) ANALİZİ ---
     report_lines.append("GALİBİYET / MAĞLUBİYET (W/L) ANALİZİ")
     report_lines.append("-"*50)
-    
     wl_summary, avg_win, avg_loss = analyze_wl_streaks(team_mac_data)
-    
     report_lines.append(f"MEVCUT DURUM:")
     report_lines.append(f"  {wl_summary}\n")
     report_lines.append(f"ORTALAMA SERİLER:")
     report_lines.append(f"  Tamamlanmış Galibiyet Serisi Ortalaması: {avg_win:.2f} maç")
     report_lines.append(f"  Tamamlanmış Mağlubiyet Serisi Ortalaması: {avg_loss:.2f} maç")
-    
-    # Raporu tek bir metin bloğu olarak döndür
     return "\n".join(report_lines)
 
-# ========================================================================
-# === ANALYZE_PLAYER_LOGIC (Sürüm 4.0 - Aralık Analizi) ===
-# ========================================================================
 def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sezon, ANALYSIS_RANGE):
-    """
-    analyze_player fonksiyonunun saf Python mantığı.
-    Artık 'self' almaz, DataFram'leri argüman olarak alır.
-    Tkinter'a ('add_result') yazmak yerine, bir sonuç listesi döndürür.
-    """
-    
-    # --- Güven Skoru Ağırlıkları (Base) ---
     BASE_CONFIDENCE = 50.0
     VOLUME_WEIGHT_POSITIVE = 30.0  
     VOLUME_WEIGHT_NEGATIVE = -35.0 
     EFFICIENCY_WEIGHT = 15.0       
 
-    # 1. Maç Geçmişi
     player_mac_data = df_oyuncu_mac[df_oyuncu_mac['PLAYER_NAME'] == player_name].sort_values(by='GAME_DATE')
-    
-    # 2. Sezon Verisi (En güncel)
     player_all_seasons_sorted = df_oyuncu_sezon[
         (df_oyuncu_sezon['PLAYER_NAME'] == player_name) &
         (df_oyuncu_sezon['GP'] > 0) 
     ].sort_values(by='GP', ascending=True) 
 
     if len(player_mac_data) < 3 or player_all_seasons_sorted.empty:
-        # Hata durumunda boş bir liste ve hata mesajı döndür
         return "HATA: Bu oyuncu için yetersiz veri (maç < 3 veya sezon verisi yok).", []
     
     bu_sezon = player_all_seasons_sorted.iloc[0] 
@@ -263,20 +234,19 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
     if gp_bs == 0:
         return "HATA: Oyuncunun sezon istatistiği (GP=0) bulunamadı.", []
 
-    # --- B. SEZONLUK ORTALAMALARI HESAPLA (HACİM ve VERİMLİLİK EŞİĞİ İÇİN) ---
     s_avg_pts = bu_sezon['PTS'] / gp_bs
     s_fga = bu_sezon['FGA']
     s_fgm = bu_sezon['FGM']
     s_avg_fg_pct = s_fgm / s_fga if s_fga > 0 else 0.0
     
     barems_to_analyze = [
-        middle_barem - ANALYSIS_RANGE, # Düşük Barem
-        middle_barem,                       # Orta Barem
-        middle_barem + ANALYSIS_RANGE  # Yüksek Barem
+        middle_barem - ANALYSIS_RANGE,
+        middle_barem,
+        middle_barem + ANALYSIS_RANGE
     ]
     
     analysis_results = []
-    report_string_list = [] # Web arayüzü için bir rapor listesi
+    report_string_list = [] 
     
     report_string_list.append(f"ANALİZ: {player_name.upper()}")
     report_string_list.append(f"Orta Barem: {middle_barem} PTS (Aralık: +/- {ANALYSIS_RANGE:.1f} PTS)")
@@ -287,9 +257,8 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
     report_string_list.append(f"Analiz ediliyor: {barems_to_analyze[0]:.1f}, {barems_to_analyze[1]:.1f}, {barems_to_analyze[2]:.1f} baremleri...")
     
     for threshold_pts in barems_to_analyze:
-        if threshold_pts <= 0: continue # Negatif baremi analiz etme
+        if threshold_pts <= 0: continue
 
-        # --- C. 3 AŞAMALI SERİ ANALİZİ ---
         (pts_pattern, _, _, _, _, _, 
          pts_comment_h, pts_comment_b, pts_prob_h, pts_prob_b, 
          pts_current_type_str, pts_prob_break_pct, _, pts_current_length
@@ -306,7 +275,6 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
         comment_verimlilik = "NÖTR (Verimlilik serisi yok/etkisiz)"
         hacim_result = 0 
 
-        # 3. HACİM Skoru
         hacim_skoru = s_avg_pts 
         hacim_fark = hacim_skoru - threshold_pts
         hacim_pozitif_esik = 2.0 
@@ -332,10 +300,9 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
         elif hacim_result == -1:
             final_confidence += VOLUME_WEIGHT_NEGATIVE 
 
-        # 4. VERİMLİLİK Skoru (FG_PCT)
         verimlilik_yonu = "ÜST" if fg_current_type_str == "eşik altı ('ATAMADI')" else "ALT"
         
-        if fg_prob_break_pct > 1: # 1.0 (N_reached=0) durumunu hariç tut
+        if fg_prob_break_pct > 1:
             if aday_yonu == verimlilik_yonu:
                 final_confidence += EFFICIENCY_WEIGHT
                 comment_verimlilik = "POZİTİF (FG% serisi de aynı yönde)"
@@ -346,7 +313,6 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
         final_confidence = max(5, min(99, int(final_confidence)))
         full_pts_comment = (pts_prob_h + pts_prob_b).replace("\n", " ").replace("    >> ", "")
         
-        # Sinerji Skoru Hesapla
         sinerji_skoru = (pts_prob_break_pct / 100.0) * (final_confidence / 100.0)
         
         analysis_results.append({
@@ -365,14 +331,12 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
     report_string_list.append("ARALIK ANALİZİ SONUÇLARI (Sinerjiye Göre Sıralı)")
     report_string_list.append("="*50 + "\n")
     
-    # SİNERJİ, DESEN ve GÜVEN skoruna göre sırala
     all_adaylar = sorted(
         analysis_results, 
         key=lambda x: (x['sinerji_skoru'], x['pts_prob'], x['confidence']), 
         reverse=True 
     )
 
-    # --- E. SONUÇLARI METNE DÖK ---
     for i, aday in enumerate(all_adaylar, 1):
         report_string_list.append(f"#{i}: {aday['name']} ({aday['threshold']:.1f} PTS {aday['direction']})")
         report_string_list.append(f"  -> SİNERJİ SKORU: {aday['sinerji_skoru']:.3f}")
@@ -381,9 +345,6 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
         report_string_list.append(f"  -> Hacim Yorumu: {aday['comment_hacim']}")
         report_string_list.append(f"  -> Verimlilik Yorumu: {aday['comment_verimlilik']}\n")
     
-    # (Sezonluk bilgilendirme kısmı basitlik için şimdilik atlandı)
-    
-    # Raporu ve sıralı listeyi döndür
     return "\n".join(report_string_list), all_adaylar
 
 
@@ -398,41 +359,24 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
     API'den fikstürü çeker, aktif oyuncuları (bu sezon >= 3 maç) filtreler,
     CSV'den sakatları filtreler ve barem girilecek TOP 5 listesini döndürür.
     
-    Proxy (Webshare) ve Headers (Tarayıcı Kimliği) kullanacak şekilde güncellendi.
+    GÜNCELLEME: 'nba-api' kütüphanesinin 'scoreboardv2' sarmalayıcısı atlandı.
+    İstek, 'veri_cek.py'de kanıtlandığı gibi, 'requests' ile manuel olarak
+    (Proxy'siz, sadece Headers ile) yapılıyor.
     """
     
     report_lines = [] 
     TOP_N_PLAYERS_PER_TEAM = 5
     
-    # --- 1. Webshare Proxy Listeniz ---
-    # Buraya Webshare'in size verdiği 10 adet proxy'yi yapıştırın.
-    # Format: 'http://KULLANICIADI:SIFRE@IP:PORT'
-    
-    WEBSHARE_PROXY_LIST = [
-        "http://zuysrbid:02k84bf9gqi1@216.10.27.159:6837", # Örnek: "http://abc:123@1.2.3.4:8080"
-        #"http://PROXY_2_BURAYA_YAPISTIRIN",
-        #"http://PROXY_3_BURAYA_YAPISTIRIN",
-        #"http://PROXY_4_BURAYA_YAPISTIRIN",
-        #"http://PROXY_5_BURAYA_YAPISTIRIN",
-        #"http://PROXY_6_BURAYA_YAPISTIRIN",
-        #"http://PROXY_7_BURAYA_YAPISTIRIN",
-        #"http://PROXY_8_BURAYA_YAPISTIRIN",
-        #"http://PROXY_9_BURAYA_YAPISTIRIN",
-        #"http://PROXY_10_BURAYA_YAPISTIRIN",
-    ]
-
-
-    # --- 2. Sahte Tarayıcı Kimliği (Headers) ---
+    # --- 1. Sahte Tarayıcı Kimliği (Headers) ---
+    # Bu, 'veri_cek.py'de çalışan ve kanıtlanmış yöntemdir.
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         'Accept': 'application/json; charset=utf-8',
         'Accept-Language': 'en-US,en;q=0.9',
         'Referer': 'https://www.nba.com/',
-        'Origin': 'https://www.nba.com'
+        'Origin': 'https://www.nba.com',
+        'Connection': 'keep-alive',
     }
-    
-    proxy_ip_port = "Bilinmiyor" # Loglama için
-    proxy_url = None # Kullanılacak proxy'yi saklamak için
     
     try:
         # 1. Adım: Fikstür ve Sakatlık Verilerini Çek
@@ -449,69 +393,74 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         today_str = target_date.strftime('%Y-%m-%d')
 
         report_lines.append(f"NBA.com'dan {today_str} fikstürü çekiliyor...")
-        
-        # Proxy listesinden "placeholder" (doldurulmamış) olanları temizle
-        filled_proxies = [p for p in WEBSHARE_PROXY_LIST if "PROXY_" not in p]
-        
-        if not filled_proxies:
-            report_lines.append("UYARI: Proxy listeniz (WEBSHARE_PROXY_LIST) doldurulmamış.")
-            report_lines.append("   -> Proxy olmadan (Render IP'si ile) deneniyor...")
-        else:
-            report_lines.append(f"{len(filled_proxies)} adet proxy'den rastgele biri seçilecek...")
-            
-            # Listeden rastgele bir proxy seç
-            proxy_url = random.choice(filled_proxies)
-            
-            if '@' in proxy_url: proxy_ip_port = proxy_url.split('@')[-1]
-            elif '//' in proxy_url: proxy_ip_port = proxy_url.split('//')[-1]
-            report_lines.append(f"Proxy deneniyor: {proxy_ip_port}")
-
+        report_lines.append("   -> (Not: 'nba-api' kütüphanesi atlanıyor, 'requests' ile manuel istek yapılıyor.)")
         
         time.sleep(1.0) # API'yi yavaşlat
 
-        # --- 3. API ÇAĞRISI (Proxy + Headers ile) ---
+        # --- 2. 'scoreboardv2' İÇİN MANUEL İSTEK ---
+        
+        # 'scoreboardv2'nin kullandığı URL ve parametreler
+        api_url = "https://stats.nba.com/stats/scoreboardv2"
+        api_params = {
+            "GameDate": today_str,
+            "LeagueID": "00"
+        }
+        
         try:
-            # --- !!! ASIL DÜZELTME BURADA !!! ---
-            # Parametrenin adı 'proxies' (sözlük) değil, 'proxy' (tekil string)
-            # Eğer proxy_url = None ise (yani liste boşsa), kütüphane proxy kullanmaz.
-            scoreboard = scoreboardv2.ScoreboardV2(
-                game_date=today_str, 
-                league_id='00', 
-                timeout=timeout_seconds,
+            # Proxy OLMADAN, sadece headers ile istek yap
+            response = requests.get(
+                api_url,
+                params=api_params,
                 headers=headers,
-                proxy=proxy_url  # <-- 'proxies=...' DEĞİL, BU! (proxy_url None olabilir)
+                timeout=timeout_seconds # 60 saniye
             )
-            # --- !!! DÜZELTME BİTTİ !!! ---
+            # 403 (Forbidden), 404 (Not Found) veya 500 (Server Error) gibi hataları yakala
+            response.raise_for_status() 
             
+            # Gelen veriyi JSON olarak al
+            api_data = response.json()
+
         except requests.exceptions.Timeout:
-            report_lines.append(f"KRİTİK HATA: Proxy ({proxy_ip_port}) veya NBA.com zaman aşımına uğradı (Timeout).")
-            report_lines.append("   -> Başka bir proxy denemek için 'Oyuncu Listesi Al'a tekrar basın.")
+            report_lines.append(f"KRİTİK HATA: NBA.com (manuel istek) zaman aşımına uğradı (Timeout).")
+            report_lines.append("   -> Render IP'si 'scoreboardv2' için engellenmiş görünüyor.")
+            report_lines.append("   -> Bu, 'veri_cek.py'nin çalışmasından farklı bir durum, 'nba.com' bu uç noktaya daha duyarlı.")
             return report_lines, None, today_str, None, None
+        except requests.exceptions.HTTPError as e:
+            report_lines.append(f"KRİTİK HATA: NBA.com (manuel istek) HTTP hatası döndü: {e.response.status_code}")
+            report_lines.append("   -> Muhtemelen headers (tarayıcı kimliği) geçersiz veya API uç noktası değişmiş.")
+            return report_lines, None, today_str, None, None
+        except Exception as e:
+            report_lines.append(f"KRİTİK HATA (Manuel İstek): {e}")
+            return report_lines, None, today_str, None, None
+        
+        # --- 3. MANUEL JSON PARSING (DataFrame'e Çevirme) ---
+        try:
+            # 'nba-api' kütüphanesinin normalde yaptığı işi yapıyoruz:
+            # 'resultSets' listesini bul
+            result_sets = api_data.get('resultSets', [])
             
-        except requests.exceptions.ConnectionError:
-            report_lines.append(f"KRİTİK HATA: Proxy'ye ({proxy_ip_port}) bağlanılamadı (ConnectionError).")
-            report_lines.append("   -> Proxy listesindeki bu adres kapalı veya yanlış olabilir.")
-            report_lines.append("   -> Başka bir proxy denemek için 'Oyuncu Listesi Al'a tekrar basın.")
-            return report_lines, None, today_str, None, None
+            # Adı 'GameHeader' olanı bul
+            game_header_data = next((item for item in result_sets if item["name"] == "GameHeader"), None)
             
-        except TypeError as e:
-            # Eğer 'proxy' parametresi hala hata verirse (eski nba-api sürümü demektir)
-            if "unexpected keyword argument" in str(e):
-                report_lines.append(f"KRİTİK HATA (Kodlama): 'proxy' parametresi 'nba-api' sürümünüzle uyumsuz.")
-                report_lines.append(f"   -> Hata: {e}")
-                report_lines.append(f"   -> Lütfen Render'da 'Clear build cache & deploy' yapın.")
-            else:
-                report_lines.append(f"KRİTİK HATA (TypeError): {e}")
-            return report_lines, None, today_str, None, None
+            if not game_header_data:
+                report_lines.append("HATA: API'den 'GameHeader' verisi bulunamadı.")
+                return report_lines, None, today_str, None, None
+
+            # Sütun başlıklarını ve satır verilerini al
+            column_headers = game_header_data.get('headers', [])
+            row_set = game_header_data.get('rowSet', [])
+            
+            # DataFrame'i oluştur
+            games_df = pd.DataFrame(row_set, columns=column_headers)
 
         except Exception as e:
-            report_lines.append(f"KRİTİK HATA (Proxy/API): {e}")
-            report_lines.append(f"   -> Denenen Proxy: {proxy_ip_port}")
+            report_lines.append(f"KRİTİK HATA: API JSON'u (GameHeader) parse edilemedi: {e}")
             return report_lines, None, today_str, None, None
+            
+        # --- MANUEL İSTEK BÖLÜMÜ BİTTİ ---
         
-        # --- GÜNCELLEME BİTTİ ---
         
-        games_df = scoreboard.game_header.get_data_frame() 
+        # --- 4. Kodun Geri Kalanı (Değişiklik Yok) ---
         
         # CSV Sakatlık Okuma
         try:
@@ -635,6 +584,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
 
 # ========================================================================
 # === HİBRİT ANALİZ - ADIM 2: BAREMLERİ ANALİZ ET ===
+# (Bu fonksiyonda değişiklik yok)
 # ========================================================================
 def run_full_analysis_logic(
     baremler, # Kullanıcıdan gelen (player_name, middle_barem) listesi
@@ -856,14 +806,12 @@ def run_full_analysis_logic(
     
     report_lines.append("Sıralama: 1. (Desen * Güven), 2. Desen, 3. Güven")
     
-    # YENİ ÜÇLÜ SIRALAMA MANTIĞI
     all_adaylar = sorted(
         analysis_results, 
         key=lambda x: (x['sinerji_skoru'], x['pts_prob'], x['confidence']), # 1. Sinerji, 2. Desen, 3. Güven
         reverse=True 
     )
     
-    # Rastgele Eşitlik Bozma (Sürüm 3.9)
     if all_adaylar:
         top_score_tuple = (
             all_adaylar[0]['sinerji_skoru'], 
@@ -892,7 +840,6 @@ def run_full_analysis_logic(
             
     # --- 6. Adım: Sonuçları Sun ---
     
-    # (Sürüm 4.2 - Maç Çeşitliliği)
     top_2_diverse_picks = []
     seen_game_ids_for_top2 = set()
     
@@ -911,7 +858,6 @@ def run_full_analysis_logic(
     if not top_2_diverse_picks:
          report_lines.append(f"Desen Olasılığı >= %{MINIMUM_PATTERN_PROBABILITY} olan farklı maçlardan aday bulunamadı.")
     
-    # Raporu oluştur
     report_lines.append("\n" + "="*60)
     report_lines.append("EN GÜVENİLİR 2 ÖNERİ (Farklı Maçlardan)")
     report_lines.append("="*60)
@@ -930,26 +876,18 @@ def run_full_analysis_logic(
     report_lines.append("\n" + "="*60)
     report_lines.append("Analiz tamamlandı.")
     
-    # 3 değer döndür: Rapor metni, Top 2 liste, Tüm adaylar listesi
     return "\n".join(report_lines), top_2_diverse_picks, all_adaylar
 
 # ========================================================================
 # === BACKTEST LOGIC (Sürüm 5.0) ===
+# (Bu fonksiyonda değişiklik yok)
 # ========================================================================
 def run_backtest_logic(log_data, df_mac_results, min_prob):
-    """
-    Tek bir tarihin veya tüm tarihlerin (log_data) analizini yapar
-    ve 2 başarı metriği döndürür.
-    """
-    
-    # --- BU DEĞİŞKEN BAŞLATMA BLOĞU ARTIK DOĞRU OLMALI ---
     total_predictions = 0
     total_success = 0
     top_4_predictions = 0
     top_4_success = 0
-    # --- BİTTİ ---
     
-    # 1. Top 4 ve diğerlerini ayır
     top_4_diverse = []
     seen_games_top4 = set()
     other_results = []
@@ -969,9 +907,6 @@ def run_backtest_logic(log_data, df_mac_results, min_prob):
         else:
             other_results.append(aday)
     
-    # 2. Analizi yap ve raporla
-    
-    # --- Top 4 Önerileri Kontrol Et ---
     report_lines_top4 = []
     if not top_4_diverse:
         report_lines_top4.append("Bu tarih için Top 4 öneri bulunamamış.\n")
@@ -981,11 +916,8 @@ def run_backtest_logic(log_data, df_mac_results, min_prob):
         game_id = aday['game_id']
         barem = aday['threshold']
         direction = aday['direction'] 
-        
-        # --- YENİ BİLGİLERİ AL ---
         pts_prob = aday['pts_prob']
         confidence = aday['confidence']
-        # --- BİTTİ ---
         
         actual_row = df_mac_results.loc[
             (df_mac_results['PLAYER_ID'] == player_id) & 
@@ -1015,10 +947,8 @@ def run_backtest_logic(log_data, df_mac_results, min_prob):
                 status = 'basarisiz'
                 result_str = f"BAŞARISIZ (Sonuç: {actual_pts:.0f} PTS)"
         
-        # <-- DEĞİŞİKLİK BURADA: Rapora [D: ... | G: ...] eklendi
         report_lines_top4.append( (f"#{i}: {aday['name']} ({barem:.1f} {direction}) [D: {pts_prob:.0f}% | G: {confidence}%] -> {result_str}", status) )
 
-    # --- Diğer Sonuçları Kontrol Et ---
     report_lines_other = []
     if not other_results:
         report_lines_other.append( ("Listede başka analiz bulunmuyor.\n", 'kucuk_desen') )
@@ -1028,11 +958,8 @@ def run_backtest_logic(log_data, df_mac_results, min_prob):
         game_id = aday['game_id']
         barem = aday['threshold']
         direction = aday['direction'] 
-
-        # --- YENİ BİLGİLERİ AL ---
         pts_prob = aday['pts_prob']
         confidence = aday['confidence']
-        # --- BİTTİ ---
         
         actual_row = df_mac_results.loc[
             (df_mac_results['PLAYER_ID'] == player_id) & 
@@ -1062,10 +989,8 @@ def run_backtest_logic(log_data, df_mac_results, min_prob):
         
         filter_str = "(FİLTREYE TAKILDI)" if aday['pts_prob'] < min_prob else ""
         
-        # <-- DEĞİŞİKLİK BURADA: Rapora [D: ... | G: ...] eklendi
         report_lines_other.append( (f"#{i}: {aday['name']} ({barem:.1f} {direction}) [D: {pts_prob:.0f}% | G: {confidence}%] {filter_str} -> {result_str}", status) )
 
-    # --- Final Raporu ---
     report_summary = []
     
     if top_4_predictions == 0:
@@ -1080,5 +1005,4 @@ def run_backtest_logic(log_data, df_mac_results, min_prob):
         total_rate = (total_success / total_predictions) * 100
         report_summary.append( (f"Tüm Analizler Başarısı: %{total_rate:.1f} ({total_success}/{total_predictions})", 'buyuk_yesil') )
 
-    # --- BU RETURN SATIRI ARTIK DOĞRU OLMALI ---
     return report_lines_top4, report_lines_other, report_summary, (top_4_success, top_4_predictions, total_success, total_predictions)
