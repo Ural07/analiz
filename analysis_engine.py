@@ -3,11 +3,11 @@ import numpy as np
 import random
 from datetime import datetime, timedelta 
 import time
-from nba_api.stats.endpoints import scoreboardv2 # Bunu artık kullanmayacağız ama kalsın
+from nba_api.stats.endpoints import scoreboardv2
 import traceback
-import requests  # <-- KANITLANMIŞ YÖNTEMİ KULLANMAK İÇİN BU GEREKLİ
+import requests  # Sadece hata yakalama (Timeout) için
 
-# Hatalı olan 'from nba_api.library.http...' satırı kaldırıldı.
+# Hatalı 'NBAStatsHTTP' import'u bu sürümde YOKTUR.
 
 # ========================================================================
 # === ANALYZE_STREAKS (Sürüm 3.7 - Ortalamaya Dönüş Mantığı) ===
@@ -356,19 +356,33 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 
 def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=60):
     """
-    API'den fikstürü çeker, aktif oyuncuları (bu sezon >= 3 maç) filtreler,
-    CSV'den sakatları filtreler ve barem girilecek TOP 5 listesini döndürür.
-    
-    GÜNCELLEME: 'nba-api' kütüphanesinin 'scoreboardv2' sarmalayıcısı atlandı.
-    İstek, 'veri_cek.py'de kanıtlandığı gibi, 'requests' ile manuel olarak
-    (Proxy'siz, sadece Headers ile) yapılıyor.
+    API'den fikstürü çeker.
+    GÜNCELLEME: 'scoreboardv2' için 'nba-api' kütüphanesi yerine
+    'requests' ile (PROXY + HEADERS) manuel istek yapar.
     """
     
     report_lines = [] 
     TOP_N_PLAYERS_PER_TEAM = 5
     
-    # --- 1. Sahte Tarayıcı Kimliği (Headers) ---
-    # Bu, 'veri_cek.py'de çalışan ve kanıtlanmış yöntemdir.
+    # --- 1. Webshare Proxy Listeniz ---
+    # Buraya Webshare'in size verdiği 10 adet proxy'yi yapıştırın.
+    # Format: 'http://KULLANICIADI:SIFRE@IP:PORT'
+    
+    WEBSHARE_PROXY_LIST = [
+        "http://zuysrbid:02k84bf9gqi1@216.10.27.159:6837", # Örnek: "http://abc:123@1.2.3.4:8080"
+        #"http://PROXY_2_BURAYA_YAPISTIRIN",
+        #"http://PROXY_3_BURAYA_YAPISTIRIN",
+        #"http://PROXY_4_BURAYA_YAPISTIRIN",
+        #"http://PROXY_5_BURAYA_YAPISTIRIN",
+        #"http://PROXY_6_BURAYA_YAPISTIRIN",
+        #"http://PROXY_7_BURAYA_YAPISTIRIN",
+        #"http://PROXY_8_BURAYA_YAPISTIRIN",
+        #"http://PROXY_9_BURAYA_YAPISTIRIN",
+        #"http://PROXY_10_BURAYA_YAPISTIRIN",
+    ]
+
+
+    # --- 2. Sahte Tarayıcı Kimliği (Headers) ---
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         'Accept': 'application/json; charset=utf-8',
@@ -377,6 +391,9 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         'Origin': 'https://www.nba.com',
         'Connection': 'keep-alive',
     }
+    
+    proxy_ip_port = "Bilinmiyor" # Loglama için
+    proxies_dict = None # Kullanılacak proxy sözlüğü
     
     try:
         # 1. Adım: Fikstür ve Sakatlık Verilerini Çek
@@ -393,13 +410,35 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         today_str = target_date.strftime('%Y-%m-%d')
 
         report_lines.append(f"NBA.com'dan {today_str} fikstürü çekiliyor...")
-        report_lines.append("   -> (Not: 'nba-api' kütüphanesi atlanıyor, 'requests' ile manuel istek yapılıyor.)")
+        
+        # Proxy listesinden "placeholder" (doldurulmamış) olanları temizle
+        filled_proxies = [p for p in WEBSHARE_PROXY_LIST if "PROXY_" not in p]
+        
+        if not filled_proxies:
+            report_lines.append("UYARI: Proxy listeniz (WEBSHARE_PROXY_LIST) doldurulmamış.")
+            report_lines.append("   -> 'scoreboardv2' API'si (en hassas olan) muhtemelen başarısız olacak.")
+            report_lines.append("   -> Proxy olmadan (Render IP'si ile) deneniyor...")
+        else:
+            report_lines.append(f"{len(filled_proxies)} adet proxy'den rastgele biri seçilecek...")
+            
+            # Listeden rastgele bir proxy seç
+            proxy_url = random.choice(filled_proxies)
+            
+            # 'requests' kütüphanesinin beklediği sözlük formatı
+            proxies_dict = {
+                'http': proxy_url,
+                'https': proxy_url,
+            }
+            
+            if '@' in proxy_url: proxy_ip_port = proxy_url.split('@')[-1]
+            elif '//' in proxy_url: proxy_ip_port = proxy_url.split('//')[-1]
+            report_lines.append(f"Proxy deneniyor: {proxy_ip_port}")
+
         
         time.sleep(1.0) # API'yi yavaşlat
 
-        # --- 2. 'scoreboardv2' İÇİN MANUEL İSTEK ---
+        # --- 2. 'scoreboardv2' İÇİN MANUEL İSTEK (BU KEZ PROXY İLE) ---
         
-        # 'scoreboardv2'nin kullandığı URL ve parametreler
         api_url = "https://stats.nba.com/stats/scoreboardv2"
         api_params = {
             "GameDate": today_str,
@@ -407,50 +446,54 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         }
         
         try:
-            # Proxy OLMADAN, sadece headers ile istek yap
+            # İsteği PROXY + HEADERS ile yap
             response = requests.get(
                 api_url,
                 params=api_params,
                 headers=headers,
+                proxies=proxies_dict, # <-- PROXY SÖZLÜĞÜNÜ BURAYA EKLE
                 timeout=timeout_seconds # 60 saniye
             )
-            # 403 (Forbidden), 404 (Not Found) veya 500 (Server Error) gibi hataları yakala
             response.raise_for_status() 
-            
-            # Gelen veriyi JSON olarak al
             api_data = response.json()
 
         except requests.exceptions.Timeout:
-            report_lines.append(f"KRİTİK HATA: NBA.com (manuel istek) zaman aşımına uğradı (Timeout).")
-            report_lines.append("   -> Render IP'si 'scoreboardv2' için engellenmiş görünüyor.")
-            report_lines.append("   -> Bu, 'veri_cek.py'nin çalışmasından farklı bir durum, 'nba.com' bu uç noktaya daha duyarlı.")
+            if proxies_dict:
+                report_lines.append(f"KRİTİK HATA: Proxy ({proxy_ip_port}) veya NBA.com zaman aşımına uğradı (Timeout).")
+            else:
+                report_lines.append(f"KRİTİK HATA: NBA.com (proxy'siz) zaman aşımına uğradı (Timeout).")
+            report_lines.append("   -> Başka bir proxy denemek için 'Oyuncu Listesi Al'a tekrar basın (veya listenizi doldurun).")
             return report_lines, None, today_str, None, None
+        
+        except requests.exceptions.ProxyError as e:
+            report_lines.append(f"KRİTİK HATA (ProxyError): Proxy'ye ({proxy_ip_port}) bağlanılamadı.")
+            report_lines.append("   -> Proxy listesindeki bu adres kapalı, hatalı veya süresi dolmuş olabilir.")
+            report_lines.append(f"   -> Hata Detayı: {e}")
+            return report_lines, None, today_str, None, None
+            
         except requests.exceptions.HTTPError as e:
-            report_lines.append(f"KRİTİK HATA: NBA.com (manuel istek) HTTP hatası döndü: {e.response.status_code}")
-            report_lines.append("   -> Muhtemelen headers (tarayıcı kimliği) geçersiz veya API uç noktası değişmiş.")
+            report_lines.append(f"KRİTİK HATA: NBA.com HTTP hatası döndü: {e.response.status_code}")
+            if e.response.status_code == 407:
+                 report_lines.append("   -> HATA 407: Proxy kimlik doğrulaması başarısız (Kullanıcı adı/şifre yanlış).")
+            else:
+                 report_lines.append("   -> Muhtemelen headers (tarayıcı kimliği) geçersiz veya API uç noktası değişmiş.")
             return report_lines, None, today_str, None, None
+        
         except Exception as e:
             report_lines.append(f"KRİTİK HATA (Manuel İstek): {e}")
             return report_lines, None, today_str, None, None
         
         # --- 3. MANUEL JSON PARSING (DataFrame'e Çevirme) ---
         try:
-            # 'nba-api' kütüphanesinin normalde yaptığı işi yapıyoruz:
-            # 'resultSets' listesini bul
             result_sets = api_data.get('resultSets', [])
-            
-            # Adı 'GameHeader' olanı bul
             game_header_data = next((item for item in result_sets if item["name"] == "GameHeader"), None)
             
             if not game_header_data:
                 report_lines.append("HATA: API'den 'GameHeader' verisi bulunamadı.")
                 return report_lines, None, today_str, None, None
 
-            # Sütun başlıklarını ve satır verilerini al
             column_headers = game_header_data.get('headers', [])
             row_set = game_header_data.get('rowSet', [])
-            
-            # DataFrame'i oluştur
             games_df = pd.DataFrame(row_set, columns=column_headers)
 
         except Exception as e:
