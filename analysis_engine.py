@@ -3,10 +3,9 @@ import numpy as np
 import random
 from datetime import datetime, timedelta 
 import time
-# nba_api.stats.endpoints'i SİLMEYİN, diğer fonksiyonlar (varsa) kullanabilir
 from nba_api.stats.endpoints import scoreboardv2 
 import traceback
-import requests  # <-- Bu artık kazıyıcı (scraper) için kullanılacak
+import requests  # Kazıyıcı ve Hata Yakalama için
 
 # --- YENİ KÜTÜPHANE ---
 from bs4 import BeautifulSoup
@@ -360,15 +359,31 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr, nba_abbr_to_id, timeout_seconds=60):
     """
     API'den fikstürü çeker.
-    GÜNCELLEME: 'nba.com' yerine 'basketball-reference.com'
-    sitesinden web scraping (kazıma) yapar.
+    GÜNCELLEME: 'basketball-reference.com' sitesinden
+    web scraping (kazıma) yapar ve bu istek için PROXY kullanır.
     """
     
     report_lines = [] 
     TOP_N_PLAYERS_PER_TEAM = 5
     
-    # --- 1. Sahte Tarayıcı Kimliği (Headers) ---
-    # Bu, 'veri_cek.py'de çalışan ve kanıtlanmış yöntemdir.
+    # --- 1. Webshare Proxy Listeniz ---
+    # Buraya Webshare'in size verdiği 10 adet proxy'yi yapıştırın.
+    # Format: 'http://KULLANICIADI:SIFRE@IP:PORT'
+    
+    WEBSHARE_PROXY_LIST = [
+        "http://zuysrbid:02k84bf9gqi1@216.10.27.159:6837", # Örnek: "http://abc:123@1.2.3.4:8080"
+        #"http://PROXY_2_BURAYA_YAPISTIRIN",
+        #"http://PROXY_3_BURAYA_YAPISTIRIN",
+        #"http://PROXY_4_BURAYA_YAPISTIRIN",
+        #"http://PROXY_5_BURAYA_YAPISTIRIN",
+        #"http://PROXY_6_BURAYA_YAPISTIRIN",
+        #"http://PROXY_7_BURAYA_YAPISTIRIN",
+        #"http://PROXY_8_BURAYA_YAPISTIRIN",
+        #"http://PROXY_9_BURAYA_YAPISTIRIN",
+        #"http://PROXY_10_BURAYA_YAPISTIRIN",
+    ]
+
+    # --- 2. Sahte Tarayıcı Kimliği (Headers) ---
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -381,11 +396,11 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
     team_ids_playing = set()
     game_id_to_matchup_str = {}
     team_to_opponent_map = {} 
-    
-    # 'games_df' (nba-api'den geliyordu) yerine, 
-    # bu iki haritayı scraping ile dolduracağız.
     team_to_game_map = {}
-    temp_game_id = 1 # Sahte bir maç ID'si (sadece gruplama için)
+    temp_game_id = 1 
+    
+    proxy_ip_port = "Bilinmiyor" 
+    proxies_dict = None # Kullanılacak proxy sözlüğü
     
     try:
         # 1. Adım: Fikstür ve Sakatlık Verilerini Çek
@@ -401,28 +416,68 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         
         today_str = target_date.strftime('%Y-%m-%d')
 
-        # --- 2. 'basketball-reference.com' SCRAPER ---
+        # --- 2. 'basketball-reference.com' SCRAPER (PROXY İLE) ---
         
         report_lines.append(f"'basketball-reference.com' sitesinden {today_str} fikstürü çekiliyor...")
         
-        # Tarihe göre dinamik URL oluştur
+        # Proxy listesinden "placeholder" (doldurulmamış) olanları temizle
+        filled_proxies = [p for p in WEBSHARE_PROXY_LIST if "PROXY_" not in p]
+        
+        if not filled_proxies:
+            report_lines.append("KRİTİK HATA: Proxy listeniz (WEBSHARE_PROXY_LIST) doldurulmamış.")
+            report_lines.append("   -> 'basketball-reference.com' (403 Yasak) hatasını aşmak için PROXY GEREKLİ.")
+            report_lines.append("   -> Lütfen 'analysis_engine.py' dosyasına proxy'lerinizi ekleyin.")
+            return report_lines, None, today_str, None, None
+        else:
+            report_lines.append(f"{len(filled_proxies)} adet proxy'den rastgele biri seçilecek...")
+            
+            # Listeden rastgele bir proxy seç
+            proxy_url = random.choice(filled_proxies)
+            
+            # 'requests' kütüphanesinin beklediği sözlük formatı
+            proxies_dict = {
+                'http': proxy_url,
+                'https': proxy_url,
+            }
+            
+            if '@' in proxy_url: proxy_ip_port = proxy_url.split('@')[-1]
+            elif '//' in proxy_url: proxy_ip_port = proxy_url.split('//')[-1]
+            report_lines.append(f"Proxy deneniyor: {proxy_ip_port}")
+
+        
         bball_ref_url = f"https://www.basketball-reference.com/boxscores/?month={target_date.month}&day={target_date.day}&year={target_date.year}"
         
         try:
+            # İsteği PROXY + HEADERS ile yap
             response = requests.get(
                 bball_ref_url,
                 headers=headers,
+                proxies=proxies_dict, # <-- 403 HATASINI AŞMAK İÇİN BU EKLENDİ
                 timeout=timeout_seconds # 60 saniye
             )
             response.raise_for_status() 
             
         except requests.exceptions.Timeout:
-            report_lines.append(f"KRİTİK HATA: 'basketball-reference.com' zaman aşımına uğradı (Timeout).")
-            report_lines.append("   -> Siteye ulaşılamıyor veya Render IP'si engellenmiş olabilir.")
+            report_lines.append(f"KRİTİK HATA: Proxy ({proxy_ip_port}) veya 'basketball-reference.com' zaman aşımına uğradı (Timeout).")
+            report_lines.append("   -> Başka bir proxy denemek için 'Oyuncu Listesi Al'a tekrar basın.")
             return report_lines, None, today_str, None, None
+        
+        except requests.exceptions.ProxyError as e:
+            report_lines.append(f"KRİTİK HATA (ProxyError): Proxy'ye ({proxy_ip_port}) bağlanılamadı.")
+            report_lines.append("   -> Proxy listesindeki bu adres kapalı, hatalı veya süresi dolmuş olabilir.")
+            report_lines.append(f"   -> Hata Detayı: {e}")
+            return report_lines, None, today_str, None, None
+            
         except requests.exceptions.HTTPError as e:
-            report_lines.append(f"KRİTİK HATA: 'basketball-reference.com' HTTP hatası döndü: {e.response.status_code}")
+            report_lines.append(f"KRİTİK HATA: Site HTTP hatası döndü: {e.response.status_code}")
+            if e.response.status_code == 403:
+                report_lines.append(f"   -> HATA 403 (Yasak): Kullandığınız proxy ({proxy_ip_port}) de engellenmiş.")
+            elif e.response.status_code == 407:
+                 report_lines.append(f"   -> HATA 407: Proxy kimlik doğrulaması başarısız (Kullanıcı adı/şifre yanlış).")
+            else:
+                 report_lines.append(f"   -> Proxy çalıştı ama site başka bir hata verdi (örn: 404 Not Found).")
             return report_lines, None, today_str, None, None
+        
         except Exception as e:
             report_lines.append(f"KRİTİK HATA (Scraper): {e}")
             return report_lines, None, today_str, None, None
@@ -430,8 +485,6 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         # --- 3. HTML PARSING (BeautifulSoup) ---
         try:
             soup = BeautifulSoup(response.text, 'lxml')
-            
-            # 'game_summary' sınıfına sahip tüm 'div'leri bul
             game_summaries = soup.find_all('div', class_='game_summary')
             
             if not game_summaries:
@@ -439,34 +492,26 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
                 return report_lines, None, today_str, None, None
 
             for game in game_summaries:
-                # O maçtaki takımların linklerini bul (href'i '/teams/' ile başlayan 'a' tagleri)
                 team_links = game.find_all('a', href=lambda href: href and href.startswith('/teams/'))
                 
                 if len(team_links) >= 2:
-                    # İlk iki linki al (Away, Home)
                     away_team_link = team_links[0]
                     home_team_link = team_links[1]
                     
-                    # Linkten kısaltmayı (ABBR) al (örn: /teams/BOS/ -> BOS)
                     away_abbr = away_team_link['href'].split('/')[2]
                     home_abbr = home_team_link['href'].split('/')[2]
                     
-                    # Kısaltmayı (ABBR) ID'ye çevir (app.py'den gelen harita ile)
                     away_id = nba_abbr_to_id.get(away_abbr)
                     home_id = nba_abbr_to_id.get(home_abbr)
 
                     if away_id and home_id:
-                        # ID'leri listeye ekle
                         team_ids_playing.add(away_id)
                         team_ids_playing.add(home_id)
                         
-                        # Maç eşleşmesini (matchup string) oluştur
                         matchup_str = f"{away_abbr} @ {home_abbr}"
-                        game_id_str = f"game_{temp_game_id}" # Sahte ID
+                        game_id_str = f"game_{temp_game_id}" 
                         
                         game_id_to_matchup_str[game_id_str] = matchup_str
-                        
-                        # Kodun geri kalanının çalışması için haritaları doldur
                         team_to_game_map[home_id] = game_id_str
                         team_to_game_map[away_id] = game_id_str
                         team_to_opponent_map[home_id] = away_id
@@ -539,7 +584,6 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
             if total_before_filter > total_after_filter:
                 report_lines.append(f"CSV Sakatlık Filtresi: {total_before_filter - total_after_filter} oyuncu (CSV raporu) listeden çıkarıldı.")
 
-        # BU SATIR, ARTIK DOĞRU ÇALIŞACAK (çünkü team_ids_playing'i scraper ile doldurduk)
         key_players_df = current_season_players_df[
             current_season_players_df['TEAM_ID'].isin(team_ids_playing)
         ].copy()
@@ -556,7 +600,6 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         top_players = key_players_df.sort_values(by=['TEAM_ABBREVIATION', 'MIN_PER_GAME'], ascending=[True, False])
         top_players_grouped = top_players.groupby('TEAM_ABBREVIATION').head(TOP_N_PLAYERS_PER_TEAM).reset_index()
         
-        # BU HARİTALAR ARTIK SCRAPER'DAN GELİYOR
         top_players_grouped['GAME_ID'] = top_players_grouped['TEAM_ID'].map(team_to_game_map)
         top_players_grouped['MATCHUP'] = top_players_grouped['GAME_ID'].map(game_id_to_matchup_str)
         top_players_grouped['OPPONENT_TEAM_ID'] = top_players_grouped['TEAM_ID'].map(team_to_opponent_map) # B2B için
