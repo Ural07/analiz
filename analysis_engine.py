@@ -3,12 +3,11 @@ import numpy as np
 import random
 from datetime import datetime, timedelta 
 import time
-from nba_api.stats.endpoints import scoreboardv2 
+# Artık ne proxy ne de scraper kütüphanelerine (requests, bs4) ihtiyacımız var.
+# Sadece pandas ve datetime yeterli.
+from nba_api.stats.endpoints import scoreboardv2 # Bu import artık kullanılmıyor ama kalsın
 import traceback
-import requests  # Kazıyıcı ve Hata Yakalama için
-
-# --- YENİ KÜTÜPHANE ---
-from bs4 import BeautifulSoup
+# 'requests' ve 'BeautifulSoup' import'ları kaldırıldı.
 
 # ========================================================================
 # === ANALYZE_STREAKS (Sürüm 3.7 - Ortalamaya Dönüş Mantığı) ===
@@ -355,56 +354,27 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 
 # <-- !!! GÜNCELLEME BURADA BAŞLIYOR !!! -->
 
-# 'app.py'den 'nba_abbr_to_id' haritasını alacak şekilde imzayı güncelle
-def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr, nba_abbr_to_id, timeout_seconds=60):
+# 'app.py'den 'df_takim_mac' alacak şekilde imzayı güncelle
+def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, df_takim_mac, nba_team_id_to_abbr):
     """
     API'den fikstürü çeker.
-    GÜNCELLEME: 'basketball-reference.com' sitesinden
-    web scraping (kazıma) yapar ve bu istek için PROXY kullanır.
+    GÜNCELLEME: Tüm dış API/Proxy/Scraping çağrıları kaldırıldı.
+    Fikstür, 'app.py'den gelen ve 'veri_cek.py'nin doldurduğu
+    'df_takim_mac' (maclar tablosu) üzerinden okunuyor.
     """
     
     report_lines = [] 
     TOP_N_PLAYERS_PER_TEAM = 5
-    
-    # --- 1. Webshare Proxy Listeniz ---
-    # Buraya Webshare'in size verdiği 10 adet proxy'yi yapıştırın.
-    # Format: 'http://KULLANICIADI:SIFRE@IP:PORT'
-    
-    WEBSHARE_PROXY_LIST = [
-        "http://zuysrbid:02k84bf9gqi1@216.10.27.159:6837", # Örnek: "http://abc:123@1.2.3.4:8080"
-        #"http://PROXY_2_BURAYA_YAPISTIRIN",
-        #"http://PROXY_3_BURAYA_YAPISTIRIN",
-        #"http://PROXY_4_BURAYA_YAPISTIRIN",
-        #"http://PROXY_5_BURAYA_YAPISTIRIN",
-        #"http://PROXY_6_BURAYA_YAPISTIRIN",
-        #"http://PROXY_7_BURAYA_YAPISTIRIN",
-        #"http://PROXY_8_BURAYA_YAPISTIRIN",
-        #"http://PROXY_9_BURAYA_YAPISTIRIN",
-        #"http://PROXY_10_BURAYA_YAPISTIRIN",
-    ]
-
-    # --- 2. Sahte Tarayıcı Kimliği (Headers) ---
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-    }
     
     # --- YENİ DEĞİŞKENLER ---
     team_ids_playing = set()
     game_id_to_matchup_str = {}
     team_to_opponent_map = {} 
     team_to_game_map = {}
-    temp_game_id = 1 
-    
-    proxy_ip_port = "Bilinmiyor" 
-    proxies_dict = None # Kullanılacak proxy sözlüğü
     
     try:
         # 1. Adım: Fikstür ve Sakatlık Verilerini Çek
-        report_lines.append(f"Analiz başladı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        report_lines.append(f"Analiz başladı: {datetime.now().strftime('%Y-m-%d %H:%M:%S')}")
 
         # Saat farkı düzeltmesi (Aynı kaldı)
         now_turkey = datetime.now()
@@ -415,119 +385,63 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
             target_date = now_turkey
         
         today_str = target_date.strftime('%Y-%m-%d')
+        today_date_obj = target_date.date() # Karşılaştırma için 'date' objesi
 
-        # --- 2. 'basketball-reference.com' SCRAPER (PROXY İLE) ---
+        # --- 2. FİSTÜRÜ VERİTABANINDAN (HAFIZADAN) ÇEK ---
         
-        report_lines.append(f"'basketball-reference.com' sitesinden {today_str} fikstürü çekiliyor...")
+        report_lines.append(f"Veritabanı (df_takim_mac) {today_str} fikstürü için filtreleniyor...")
         
-        # Proxy listesinden "placeholder" (doldurulmamış) olanları temizle
-        filled_proxies = [p for p in WEBSHARE_PROXY_LIST if "PROXY_" not in p]
-        
-        if not filled_proxies:
-            report_lines.append("KRİTİK HATA: Proxy listeniz (WEBSHARE_PROXY_LIST) doldurulmamış.")
-            report_lines.append("   -> 'basketball-reference.com' (403 Yasak) hatasını aşmak için PROXY GEREKLİ.")
-            report_lines.append("   -> Lütfen 'analysis_engine.py' dosyasına proxy'lerinizi ekleyin.")
-            return report_lines, None, today_str, None, None
-        else:
-            report_lines.append(f"{len(filled_proxies)} adet proxy'den rastgele biri seçilecek...")
-            
-            # Listeden rastgele bir proxy seç
-            proxy_url = random.choice(filled_proxies)
-            
-            # 'requests' kütüphanesinin beklediği sözlük formatı
-            proxies_dict = {
-                'http': proxy_url,
-                'https': proxy_url,
-            }
-            
-            if '@' in proxy_url: proxy_ip_port = proxy_url.split('@')[-1]
-            elif '//' in proxy_url: proxy_ip_port = proxy_url.split('//')[-1]
-            report_lines.append(f"Proxy deneniyor: {proxy_ip_port}")
+        # 'df_takim_mac' içinden sadece bugünün maçlarını filtrele
+        # .dt.date kullanarak tarihleri karşılaştır
+        df_today_games = df_takim_mac[df_takim_mac['GAME_DATE'].dt.date == today_date_obj].copy()
 
-        
-        bball_ref_url = f"https://www.basketball-reference.com/boxscores/?month={target_date.month}&day={target_date.day}&year={target_date.year}"
-        
-        try:
-            # İsteği PROXY + HEADERS ile yap
-            response = requests.get(
-                bball_ref_url,
-                headers=headers,
-                proxies=proxies_dict, # <-- 403 HATASINI AŞMAK İÇİN BU EKLENDİ
-                timeout=timeout_seconds # 60 saniye
-            )
-            response.raise_for_status() 
-            
-        except requests.exceptions.Timeout:
-            report_lines.append(f"KRİTİK HATA: Proxy ({proxy_ip_port}) veya 'basketball-reference.com' zaman aşımına uğradı (Timeout).")
-            report_lines.append("   -> Başka bir proxy denemek için 'Oyuncu Listesi Al'a tekrar basın.")
-            return report_lines, None, today_str, None, None
-        
-        except requests.exceptions.ProxyError as e:
-            report_lines.append(f"KRİTİK HATA (ProxyError): Proxy'ye ({proxy_ip_port}) bağlanılamadı.")
-            report_lines.append("   -> Proxy listesindeki bu adres kapalı, hatalı veya süresi dolmuş olabilir.")
-            report_lines.append(f"   -> Hata Detayı: {e}")
-            return report_lines, None, today_str, None, None
-            
-        except requests.exceptions.HTTPError as e:
-            report_lines.append(f"KRİTİK HATA: Site HTTP hatası döndü: {e.response.status_code}")
-            if e.response.status_code == 403:
-                report_lines.append(f"   -> HATA 403 (Yasak): Kullandığınız proxy ({proxy_ip_port}) de engellenmiş.")
-            elif e.response.status_code == 407:
-                 report_lines.append(f"   -> HATA 407: Proxy kimlik doğrulaması başarısız (Kullanıcı adı/şifre yanlış).")
-            else:
-                 report_lines.append(f"   -> Proxy çalıştı ama site başka bir hata verdi (örn: 404 Not Found).")
-            return report_lines, None, today_str, None, None
-        
-        except Exception as e:
-            report_lines.append(f"KRİTİK HATA (Scraper): {e}")
-            return report_lines, None, today_str, None, None
-        
-        # --- 3. HTML PARSING (BeautifulSoup) ---
-        try:
-            soup = BeautifulSoup(response.text, 'lxml')
-            game_summaries = soup.find_all('div', class_='game_summary')
-            
-            if not game_summaries:
-                report_lines.append(f"Seçilen tarih ({today_str}) için 'basketball-reference.com' sitesinde maç bulunamadı.")
-                return report_lines, None, today_str, None, None
+        if df_today_games.empty:
+            report_lines.append(f"Seçilen tarih ({today_str}) için 'df_takim_mac' (maclar tablosu) içinde maç bulunamadı.")
+            report_lines.append("   -> Lütfen önce 'Veri Güncelle' sayfasından 'veri_cek.py' scriptini çalıştırın.")
+            return report_lines, None, today_str, None, None 
 
-            for game in game_summaries:
-                team_links = game.find_all('a', href=lambda href: href and href.startswith('/teams/'))
+        # --- 3. HARİTALARI DOLDUR ---
+        # Benzersiz GAME_ID'leri bul
+        unique_game_ids = df_today_games['GAME_ID'].unique()
+        
+        report_lines.append(f"Fikstür bulundu. {len(unique_game_ids)} maç bulundu.")
+
+        for game_id in unique_game_ids:
+            game_rows = df_today_games[df_today_games['GAME_ID'] == game_id]
+            
+            if len(game_rows) == 2:
+                team_a_id = game_rows.iloc[0]['TEAM_ID']
+                team_b_id = game_rows.iloc[1]['TEAM_ID']
                 
-                if len(team_links) >= 2:
-                    away_team_link = team_links[0]
-                    home_team_link = team_links[1]
-                    
-                    away_abbr = away_team_link['href'].split('/')[2]
-                    home_abbr = home_team_link['href'].split('/')[2]
-                    
-                    away_id = nba_abbr_to_id.get(away_abbr)
-                    home_id = nba_abbr_to_id.get(home_abbr)
+                # MATCHUP string'i 'LAL @ BOS' formatındadır
+                matchup_str = game_rows.iloc[0]['MATCHUP']
+                
+                # (Eğer veritabanında 'MATCHUP' yoksa diye yedek)
+                if not matchup_str:
+                     team_a_abbr = nba_team_id_to_abbr.get(team_a_id, "???")
+                     team_b_abbr = nba_team_id_to_abbr.get(team_b_id, "???")
+                     matchup_str = f"{team_a_abbr} vs {team_b_abbr}" # Yönü bilemeyiz ama yeterli
+                
+                game_id_to_matchup_str[game_id] = matchup_str
+                
+                team_ids_playing.add(team_a_id)
+                team_ids_playing.add(team_b_id)
+                
+                team_to_game_map[team_a_id] = game_id
+                team_to_game_map[team_b_id] = game_id
+                
+                team_to_opponent_map[team_a_id] = team_b_id
+                team_to_opponent_map[team_b_id] = team_a_id
+            
+            else:
+                report_lines.append(f"UYARI: GAME_ID {game_id} için 2 takım bulunamadı (veritabanı hatası?). Atlanıyor.")
 
-                    if away_id and home_id:
-                        team_ids_playing.add(away_id)
-                        team_ids_playing.add(home_id)
-                        
-                        matchup_str = f"{away_abbr} @ {home_abbr}"
-                        game_id_str = f"game_{temp_game_id}" 
-                        
-                        game_id_to_matchup_str[game_id_str] = matchup_str
-                        team_to_game_map[home_id] = game_id_str
-                        team_to_game_map[away_id] = game_id_str
-                        team_to_opponent_map[home_id] = away_id
-                        team_to_opponent_map[away_id] = home_id
-                        
-                        temp_game_id += 1
-                    else:
-                        report_lines.append(f"UYARI: Takım kısaltmaları ID'ye çevrilemedi: {away_abbr} veya {home_abbr}")
-
-        except Exception as e:
-            report_lines.append(f"KRİTİK HATA: HTML (BeautifulSoup) parse edilemedi: {e}")
+        if not team_ids_playing:
+            report_lines.append("HATA: Fikstür bulundu ancak takım ID'leri işlenemedi.")
             return report_lines, None, today_str, None, None
             
-        # --- SCRAPING BÖLÜMÜ BİTTİ ---
+        # --- TÜM DIŞ ARAMALAR BÖLÜMÜ BİTTİ ---
         
-        report_lines.append(f"Fikstür çekildi. {len(game_summaries)} maç bulundu.")
         
         # --- 4. Kodun Geri Kalanı (Değişiklik Yok) ---
         

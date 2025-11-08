@@ -763,8 +763,9 @@ def handle_get_players():
              csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
                  df_oyuncu_mac,
                  df_oyuncu_sezon,
-                 nba_team_id_to_abbr,
-                 nba_abbr_to_id # Bu yeni parametreyi eklemiştik
+                 df_takim_mac,
+                 nba_team_id_to_abbr
+                 
              )
         except Exception as e:
             # 'try' bloğu başarısız olursa
@@ -850,8 +851,9 @@ def handle_run_analysis():
             csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
                 df_oyuncu_mac, 
                 df_oyuncu_sezon, 
-                nba_team_id_to_abbr,
-                nba_abbr_to_id  # <-- YENİ EKLENEN PARAMETRE
+                df_takim_mac,
+                nba_team_id_to_abbr
+                
  )
          
         if top_players_final is None:
