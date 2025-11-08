@@ -1,3 +1,4 @@
+from nba_api.library.http import NBAStatsHTTP
 import pandas as pd
 import numpy as np
 import random
@@ -429,8 +430,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_sezon, nba_team_id_to_abbr, timeou
         scoreboard = scoreboardv2.ScoreboardV2(
             game_date=today_str, 
             league_id='00', 
-            timeout=timeout_seconds,
-            headers=headers  # <-- BU PARAMETRE EKLENDİ
+            timeout=timeout_seconds
         )
         # --- DEĞİŞİKLİK BİTTİ ---
         games_df = scoreboard.game_header.get_data_frame() 

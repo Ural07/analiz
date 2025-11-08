@@ -729,64 +729,79 @@ def handle_player_analysis():
 # === HİBRİT ANALİZ TETİKLEYİCİLERİ ===
 # ======================================================
 
+# app.py DOSYANIZDAKİ ESKİ handle_get_players'I SİLİP, BUNU YAPIŞTIRIN:
+
 @app.route('/get-players')
 @login_required
 def handle_get_players():
     """
     'OYUNCU LİSTESİ AL' butonu tıklandığında çalışır.
-    ARTIK API ÇAĞRISI YAPMAZ!
-    Sadece Cron Job'un hazırladığı 'gunluk_oyuncular' tablosunu okur.
+    (Artık 'buzdolabından' değil, analysis_engine aracılığıyla 
+    proxy/headers kullanarak CANLI API çağrısı yapar)
     """
     global cached_barems, cached_player_list_key, nba_team_id_to_abbr
-
-    report_lines = []
-    report_lines.append(f"Cron Job tarafından hazırlanan oyuncu listesi okunuyor: {datetime.now().strftime('%H:%M:%S')}")
-
-    with DATA_LOCK: # (Veri yüklenirken okuma yapılmasın)
+    
+    with DATA_LOCK: # (Veri yüklenirken analiz yapılmasın)
+        print("Oyuncu listesi alma talebi alındı...")
+        
+        # 1. API'den oyuncuları, sakatları vb. çek
+        # Bu fonksiyon artık 'analysis_engine' içinde proxy kullanıyor
+        # (Eğer bir önceki adımdaki optimizasyonu yaptıysanız df_oyuncu_mac'i silebilirsiniz,
+        # ama yapmadıysanız bu kod çalışacaktır)
         try:
-            # 1. BUZDOLABINDAN (Neon) HAZIR LİSTEYİ OKU
-            top_players_final = pd.read_sql_query("SELECT * FROM gunluk_oyuncular", con=engine)
-
-            if top_players_final.empty:
-                report_lines.append("KRİTİK HATA: 'gunluk_oyuncular' tablosu veritabanında bulunamadı veya boş.")
-                report_lines.append("Lütfen 'Veri Güncelle' (veri_cek.py) işlemini çalıştırdığınızdan emin olun.")
-                report_lines.append("VEYA Render'daki 'fetch_roster' Cron Job'unun çalışmasını bekleyin.")
-                return render_template("index.html", 
-                               sonuclar="\n".join(report_lines), 
-                               top_2_picks=[], 
-                               all_results_ready=False)
-
+            (report_lines, 
+             top_players_final, 
+             today_str, 
+             current_season_players_df, 
+             csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
+                 df_oyuncu_mac,       # Bu, GP >= 3 filtresi için gereklidir
+                 df_oyuncu_sezon,   # Bu da gerekli
+                 nba_team_id_to_abbr
+                 # Not: analysis_engine'e eklediğimiz timeout/headers burada görünmez,
+                 # çünkü 'analysis_engine'in içinde gizlidir.
+             )
         except Exception as e:
-            report_lines.append(f"KRİTİK HATA: 'gunluk_oyuncular' tablosu okunurken hata: {e}")
-            report_lines.append("Lütfen önce 'Veri Güncelle' (veri_cek.py) işlemini çalıştırın.")
+            # API çağrısı (proxy ile bile) başarısız olursa
+            error_report = f"KRİTİK HATA (analysis_engine): {e}\n\n{traceback.format_exc()}"
+            print(error_report)
             return render_template("index.html", 
-                               sonuclar="\n".join(report_lines), 
-                               top_2_picks=[], 
-                               all_results_ready=False)
+                                   sonuclar=error_report, 
+                                   top_2_picks=[], 
+                                   all_results_ready=False)
 
-        # 2. Hafıza (Cache) Kontrolü (Aynı kaldı)
+        # 2. Eğer API veya filtreleme başarısız olursa (örn: maç yoksa)
+        if top_players_final is None:
+            sonuclar = "\n".join(report_lines)
+            return render_template("index.html", 
+                                   sonuclar=sonuclar, 
+                                   top_2_picks=[], 
+                                   all_results_ready=False)
+
+        # 3. Hafıza (Cache) Kontrolü
         player_names_for_popup = sorted(top_players_final['PLAYER_NAME'].tolist())
         current_player_list_key = "-".join(player_names_for_popup)
-
+        
         if current_player_list_key != cached_player_list_key:
-            report_lines.append("Yeni oyuncu listesi algılandı. Barem hafızası sıfırlanıyor...")
+            report_lines.append("Yeni oyuncu listesi algılandı. Barem hafázası sıfırlanıyor...")
             cached_barems = {} 
             cached_player_list_key = current_player_list_key 
         else:
             report_lines.append("Hafızadaki baremler (cache) kullanılacak.")
-
-        # 3. YENİ GRUPLAMA MANTIĞI (Aynı kaldı)
+        
+        # 4. GRUPLAMA MANTIĞI 
         grouped_players = {}
-        for matchup_name, group_df in top_players_final.groupby('MATCHUP', sort=False):
-            grouped_players[matchup_name] = group_df.to_dict('records')
-
-        # 4. Gruplanmış veriyi 'index.html'e geri gönder.
-        # 'today_str' değişkeni artık olmadığı için onu kaldırıyoruz.
+        if top_players_final is not None:
+            # 'sort=False' ile API'den gelen maç sırasını (GAME_ID) koru
+            for matchup_name, group_df in top_players_final.groupby('MATCHUP', sort=False):
+                # O maça ait oyuncuları (DataFrame grubunu) listeye çevir
+                grouped_players[matchup_name] = group_df.to_dict('records')
+        
+        # 5. Gruplanmış veriyi 'index.html'e geri gönder.
         return render_template("index.html", 
                                sonuclar="\n".join(report_lines),
-                               players_to_analyze_grouped=grouped_players, 
+                               players_to_analyze_grouped=grouped_players, # Gruplanmış veri
                                cached_barems=cached_barems, 
-                               today_str=datetime.now().strftime('%Y-%m-%d'), # Yerine bugünün tarihini koy
+                               today_str=today_str,
                                all_results_ready=False)
 
 @app.route('/run-analysis', methods=['POST'])
