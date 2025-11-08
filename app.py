@@ -731,37 +731,43 @@ def handle_player_analysis():
 
 # app.py DOSYANIZDAKİ ESKİ handle_get_players'I SİLİP, BUNU YAPIŞTIRIN:
 
+# app.py
+
 @app.route('/get-players')
 @login_required
 def handle_get_players():
     """
     'OYUNCU LİSTESİ AL' butonu tıklandığında çalışır.
-    (Artık 'buzdolabından' değil, analysis_engine aracılığıyla 
-    proxy/headers kullanarak CANLI API çağrısı yapar)
+    (Artık 'basketball-reference.com' kazıyıcısını kullanır)
     """
-    global cached_barems, cached_player_list_key, nba_team_id_to_abbr
+    global cached_barems, cached_player_list_key, nba_team_id_to_abbr, nba_abbr_to_id
+    
+    # --- DÜZELTME BURADA ---
+    # Değişkenlere, 'try' bloğuna girmeden önce varsayılan değerler atayalım.
+    # Bu, 'today_str tanımlanmadı' hatasını çözecektir.
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    report_lines = []
+    top_players_final = None
+    grouped_players = {}
+    # --- DÜZELTME BİTTİ ---
     
     with DATA_LOCK: # (Veri yüklenirken analiz yapılmasın)
         print("Oyuncu listesi alma talebi alındı...")
         
-        # 1. API'den oyuncuları, sakatları vb. çek
-        # Bu fonksiyon artık 'analysis_engine' içinde proxy kullanıyor
-        # (Eğer bir önceki adımdaki optimizasyonu yaptıysanız df_oyuncu_mac'i silebilirsiniz,
-        # ama yapmadıysanız bu kod çalışacaktır)
         try:
+            # Bu fonksiyon artık 'analysis_engine' içindeki kazıyıcıyı çağırıyor
             (report_lines, 
              top_players_final, 
-             today_str, 
+             today_str, # Değişken burada güncellenecek
              current_season_players_df, 
              csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
-                 df_oyuncu_mac,       # Bu, GP >= 3 filtresi için gereklidir
-                 df_oyuncu_sezon,   # Bu da gerekli
-                 nba_team_id_to_abbr
-                 # Not: analysis_engine'e eklediğimiz timeout/headers burada görünmez,
-                 # çünkü 'analysis_engine'in içinde gizlidir.
+                 df_oyuncu_mac,
+                 df_oyuncu_sezon,
+                 nba_team_id_to_abbr,
+                 nba_abbr_to_id # Bu yeni parametreyi eklemiştik
              )
         except Exception as e:
-            # API çağrısı (proxy ile bile) başarısız olursa
+            # 'try' bloğu başarısız olursa
             error_report = f"KRİTİK HATA (analysis_engine): {e}\n\n{traceback.format_exc()}"
             print(error_report)
             return render_template("index.html", 
@@ -789,7 +795,7 @@ def handle_get_players():
             report_lines.append("Hafızadaki baremler (cache) kullanılacak.")
         
         # 4. GRUPLAMA MANTIĞI 
-        grouped_players = {}
+        # (Gruplama işlemini 'top_players_final' None değilse yap)
         if top_players_final is not None:
             # 'sort=False' ile API'den gelen maç sırasını (GAME_ID) koru
             for matchup_name, group_df in top_players_final.groupby('MATCHUP', sort=False):
@@ -797,6 +803,7 @@ def handle_get_players():
                 grouped_players[matchup_name] = group_df.to_dict('records')
         
         # 5. Gruplanmış veriyi 'index.html'e geri gönder.
+        # Bu 'return' satırı artık 'today_str'nin mutlaka tanımlı olduğunu biliyor.
         return render_template("index.html", 
                                sonuclar="\n".join(report_lines),
                                players_to_analyze_grouped=grouped_players, # Gruplanmış veri
@@ -837,12 +844,15 @@ def handle_run_analysis():
 
         # 3. Analizi yapmak için Adım 1'deki oyuncu verilerini YENİDEN OLUŞTUR
         (report_lines, 
-         top_players_final, 
-         _, 
-         current_season_players_df, 
-         csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
-             df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr
-         )
+            top_players_final, 
+            _, 
+            current_season_players_df, 
+            csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
+                df_oyuncu_mac, 
+                df_oyuncu_sezon, 
+                nba_team_id_to_abbr,
+                nba_abbr_to_id  # <-- YENİ EKLENEN PARAMETRE
+ )
          
         if top_players_final is None:
             return render_template("index.html", 

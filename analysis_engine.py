@@ -3,11 +3,13 @@ import numpy as np
 import random
 from datetime import datetime, timedelta 
 import time
-from nba_api.stats.endpoints import scoreboardv2
+# nba_api.stats.endpoints'i SİLMEYİN, diğer fonksiyonlar (varsa) kullanabilir
+from nba_api.stats.endpoints import scoreboardv2 
 import traceback
-import requests  # Sadece hata yakalama (Timeout) için
+import requests  # <-- Bu artık kazıyıcı (scraper) için kullanılacak
 
-# Hatalı 'NBAStatsHTTP' import'u bu sürümde YOKTUR.
+# --- YENİ KÜTÜPHANE ---
+from bs4 import BeautifulSoup
 
 # ========================================================================
 # === ANALYZE_STREAKS (Sürüm 3.7 - Ortalamaya Dönüş Mantığı) ===
@@ -354,52 +356,42 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 
 # <-- !!! GÜNCELLEME BURADA BAŞLIYOR !!! -->
 
-def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=60):
+# 'app.py'den 'nba_abbr_to_id' haritasını alacak şekilde imzayı güncelle
+def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr, nba_abbr_to_id, timeout_seconds=60):
     """
     API'den fikstürü çeker.
-    GÜNCELLEME: 'scoreboardv2' için 'nba-api' kütüphanesi yerine
-    'requests' ile (PROXY + HEADERS) manuel istek yapar.
+    GÜNCELLEME: 'nba.com' yerine 'basketball-reference.com'
+    sitesinden web scraping (kazıma) yapar.
     """
     
     report_lines = [] 
     TOP_N_PLAYERS_PER_TEAM = 5
     
-    # --- 1. Webshare Proxy Listeniz ---
-    # Buraya Webshare'in size verdiği 10 adet proxy'yi yapıştırın.
-    # Format: 'http://KULLANICIADI:SIFRE@IP:PORT'
-    
-    WEBSHARE_PROXY_LIST = [
-        "http://zuysrbid:02k84bf9gqi1@216.10.27.159:6837", # Örnek: "http://abc:123@1.2.3.4:8080"
-        #"http://PROXY_2_BURAYA_YAPISTIRIN",
-        #"http://PROXY_3_BURAYA_YAPISTIRIN",
-        #"http://PROXY_4_BURAYA_YAPISTIRIN",
-        #"http://PROXY_5_BURAYA_YAPISTIRIN",
-        #"http://PROXY_6_BURAYA_YAPISTIRIN",
-        #"http://PROXY_7_BURAYA_YAPISTIRIN",
-        #"http://PROXY_8_BURAYA_YAPISTIRIN",
-        #"http://PROXY_9_BURAYA_YAPISTIRIN",
-        #"http://PROXY_10_BURAYA_YAPISTIRIN",
-    ]
-
-
-    # --- 2. Sahte Tarayıcı Kimliği (Headers) ---
+    # --- 1. Sahte Tarayıcı Kimliği (Headers) ---
+    # Bu, 'veri_cek.py'de çalışan ve kanıtlanmış yöntemdir.
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        'Accept': 'application/json; charset=utf-8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.nba.com/',
-        'Origin': 'https://www.nba.com',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
         'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
     }
     
-    proxy_ip_port = "Bilinmiyor" # Loglama için
-    proxies_dict = None # Kullanılacak proxy sözlüğü
+    # --- YENİ DEĞİŞKENLER ---
+    team_ids_playing = set()
+    game_id_to_matchup_str = {}
+    team_to_opponent_map = {} 
+    
+    # 'games_df' (nba-api'den geliyordu) yerine, 
+    # bu iki haritayı scraping ile dolduracağız.
+    team_to_game_map = {}
+    temp_game_id = 1 # Sahte bir maç ID'si (sadece gruplama için)
     
     try:
         # 1. Adım: Fikstür ve Sakatlık Verilerini Çek
         report_lines.append(f"Analiz başladı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-        # Saat farkı düzeltmesi
+        # Saat farkı düzeltmesi (Aynı kaldı)
         now_turkey = datetime.now()
         if now_turkey.hour >= 0 and now_turkey.hour < 7:
             target_date = now_turkey - timedelta(days=1)
@@ -409,99 +401,88 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         
         today_str = target_date.strftime('%Y-%m-%d')
 
-        report_lines.append(f"NBA.com'dan {today_str} fikstürü çekiliyor...")
+        # --- 2. 'basketball-reference.com' SCRAPER ---
         
-        # Proxy listesinden "placeholder" (doldurulmamış) olanları temizle
-        filled_proxies = [p for p in WEBSHARE_PROXY_LIST if "PROXY_" not in p]
+        report_lines.append(f"'basketball-reference.com' sitesinden {today_str} fikstürü çekiliyor...")
         
-        if not filled_proxies:
-            report_lines.append("UYARI: Proxy listeniz (WEBSHARE_PROXY_LIST) doldurulmamış.")
-            report_lines.append("   -> 'scoreboardv2' API'si (en hassas olan) muhtemelen başarısız olacak.")
-            report_lines.append("   -> Proxy olmadan (Render IP'si ile) deneniyor...")
-        else:
-            report_lines.append(f"{len(filled_proxies)} adet proxy'den rastgele biri seçilecek...")
-            
-            # Listeden rastgele bir proxy seç
-            proxy_url = random.choice(filled_proxies)
-            
-            # 'requests' kütüphanesinin beklediği sözlük formatı
-            proxies_dict = {
-                'http': proxy_url,
-                'https': proxy_url,
-            }
-            
-            if '@' in proxy_url: proxy_ip_port = proxy_url.split('@')[-1]
-            elif '//' in proxy_url: proxy_ip_port = proxy_url.split('//')[-1]
-            report_lines.append(f"Proxy deneniyor: {proxy_ip_port}")
-
-        
-        time.sleep(1.0) # API'yi yavaşlat
-
-        # --- 2. 'scoreboardv2' İÇİN MANUEL İSTEK (BU KEZ PROXY İLE) ---
-        
-        api_url = "https://stats.nba.com/stats/scoreboardv2"
-        api_params = {
-            "GameDate": today_str,
-            "LeagueID": "00"
-        }
+        # Tarihe göre dinamik URL oluştur
+        bball_ref_url = f"https://www.basketball-reference.com/boxscores/?month={target_date.month}&day={target_date.day}&year={target_date.year}"
         
         try:
-            # İsteği PROXY + HEADERS ile yap
             response = requests.get(
-                api_url,
-                params=api_params,
+                bball_ref_url,
                 headers=headers,
-                proxies=proxies_dict, # <-- PROXY SÖZLÜĞÜNÜ BURAYA EKLE
                 timeout=timeout_seconds # 60 saniye
             )
             response.raise_for_status() 
-            api_data = response.json()
-
+            
         except requests.exceptions.Timeout:
-            if proxies_dict:
-                report_lines.append(f"KRİTİK HATA: Proxy ({proxy_ip_port}) veya NBA.com zaman aşımına uğradı (Timeout).")
-            else:
-                report_lines.append(f"KRİTİK HATA: NBA.com (proxy'siz) zaman aşımına uğradı (Timeout).")
-            report_lines.append("   -> Başka bir proxy denemek için 'Oyuncu Listesi Al'a tekrar basın (veya listenizi doldurun).")
+            report_lines.append(f"KRİTİK HATA: 'basketball-reference.com' zaman aşımına uğradı (Timeout).")
+            report_lines.append("   -> Siteye ulaşılamıyor veya Render IP'si engellenmiş olabilir.")
             return report_lines, None, today_str, None, None
-        
-        except requests.exceptions.ProxyError as e:
-            report_lines.append(f"KRİTİK HATA (ProxyError): Proxy'ye ({proxy_ip_port}) bağlanılamadı.")
-            report_lines.append("   -> Proxy listesindeki bu adres kapalı, hatalı veya süresi dolmuş olabilir.")
-            report_lines.append(f"   -> Hata Detayı: {e}")
-            return report_lines, None, today_str, None, None
-            
         except requests.exceptions.HTTPError as e:
-            report_lines.append(f"KRİTİK HATA: NBA.com HTTP hatası döndü: {e.response.status_code}")
-            if e.response.status_code == 407:
-                 report_lines.append("   -> HATA 407: Proxy kimlik doğrulaması başarısız (Kullanıcı adı/şifre yanlış).")
-            else:
-                 report_lines.append("   -> Muhtemelen headers (tarayıcı kimliği) geçersiz veya API uç noktası değişmiş.")
+            report_lines.append(f"KRİTİK HATA: 'basketball-reference.com' HTTP hatası döndü: {e.response.status_code}")
             return report_lines, None, today_str, None, None
-        
         except Exception as e:
-            report_lines.append(f"KRİTİK HATA (Manuel İstek): {e}")
+            report_lines.append(f"KRİTİK HATA (Scraper): {e}")
             return report_lines, None, today_str, None, None
         
-        # --- 3. MANUEL JSON PARSING (DataFrame'e Çevirme) ---
+        # --- 3. HTML PARSING (BeautifulSoup) ---
         try:
-            result_sets = api_data.get('resultSets', [])
-            game_header_data = next((item for item in result_sets if item["name"] == "GameHeader"), None)
+            soup = BeautifulSoup(response.text, 'lxml')
             
-            if not game_header_data:
-                report_lines.append("HATA: API'den 'GameHeader' verisi bulunamadı.")
+            # 'game_summary' sınıfına sahip tüm 'div'leri bul
+            game_summaries = soup.find_all('div', class_='game_summary')
+            
+            if not game_summaries:
+                report_lines.append(f"Seçilen tarih ({today_str}) için 'basketball-reference.com' sitesinde maç bulunamadı.")
                 return report_lines, None, today_str, None, None
 
-            column_headers = game_header_data.get('headers', [])
-            row_set = game_header_data.get('rowSet', [])
-            games_df = pd.DataFrame(row_set, columns=column_headers)
+            for game in game_summaries:
+                # O maçtaki takımların linklerini bul (href'i '/teams/' ile başlayan 'a' tagleri)
+                team_links = game.find_all('a', href=lambda href: href and href.startswith('/teams/'))
+                
+                if len(team_links) >= 2:
+                    # İlk iki linki al (Away, Home)
+                    away_team_link = team_links[0]
+                    home_team_link = team_links[1]
+                    
+                    # Linkten kısaltmayı (ABBR) al (örn: /teams/BOS/ -> BOS)
+                    away_abbr = away_team_link['href'].split('/')[2]
+                    home_abbr = home_team_link['href'].split('/')[2]
+                    
+                    # Kısaltmayı (ABBR) ID'ye çevir (app.py'den gelen harita ile)
+                    away_id = nba_abbr_to_id.get(away_abbr)
+                    home_id = nba_abbr_to_id.get(home_abbr)
+
+                    if away_id and home_id:
+                        # ID'leri listeye ekle
+                        team_ids_playing.add(away_id)
+                        team_ids_playing.add(home_id)
+                        
+                        # Maç eşleşmesini (matchup string) oluştur
+                        matchup_str = f"{away_abbr} @ {home_abbr}"
+                        game_id_str = f"game_{temp_game_id}" # Sahte ID
+                        
+                        game_id_to_matchup_str[game_id_str] = matchup_str
+                        
+                        # Kodun geri kalanının çalışması için haritaları doldur
+                        team_to_game_map[home_id] = game_id_str
+                        team_to_game_map[away_id] = game_id_str
+                        team_to_opponent_map[home_id] = away_id
+                        team_to_opponent_map[away_id] = home_id
+                        
+                        temp_game_id += 1
+                    else:
+                        report_lines.append(f"UYARI: Takım kısaltmaları ID'ye çevrilemedi: {away_abbr} veya {home_abbr}")
 
         except Exception as e:
-            report_lines.append(f"KRİTİK HATA: API JSON'u (GameHeader) parse edilemedi: {e}")
+            report_lines.append(f"KRİTİK HATA: HTML (BeautifulSoup) parse edilemedi: {e}")
             return report_lines, None, today_str, None, None
             
-        # --- MANUEL İSTEK BÖLÜMÜ BİTTİ ---
+        # --- SCRAPING BÖLÜMÜ BİTTİ ---
         
+        report_lines.append(f"Fikstür çekildi. {len(game_summaries)} maç bulundu.")
         
         # --- 4. Kodun Geri Kalanı (Değişiklik Yok) ---
         
@@ -517,37 +498,6 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         except Exception as e:
             report_lines.append(f"UYARI: 'nba-injury-report.csv' okunurken hata: {e}")
             csv_inactive_player_names = set()
-
-        if games_df.empty:
-            report_lines.append(f"Seçilen tarih ({today_str}) için oynanacak maç bulunamadı.")
-            return report_lines, None, today_str, None, None 
-
-        report_lines.append(f"Fikstür çekildi. {len(games_df)} maç bulundu.")
-        
-        team_ids_playing = set()
-        team_to_game_map = {}
-        game_id_to_matchup_str = {}
-        team_to_opponent_map = {} 
-        
-        for index, game in games_df.iterrows():
-            home_team_id = game['HOME_TEAM_ID']
-            away_team_id = game['VISITOR_TEAM_ID']
-            game_id = game['GAME_ID']
-            
-            team_ids_playing.add(home_team_id)
-            team_ids_playing.add(away_team_id)
-            
-            home_abbr = nba_team_id_to_abbr.get(home_team_id, f"ID:{home_team_id}")
-            away_abbr = nba_team_id_to_abbr.get(away_team_id, f"ID:{away_team_id}")
-            
-            matchup_str = f"{away_abbr} @ {home_abbr}"
-            
-            team_to_game_map[home_team_id] = game_id
-            team_to_game_map[away_team_id] = game_id
-            game_id_to_matchup_str[game_id] = matchup_str
-            
-            team_to_opponent_map[home_team_id] = away_team_id
-            team_to_opponent_map[away_team_id] = home_team_id
 
         report_lines.append("="*60)
         report_lines.append(f"Oynayacak {len(team_ids_playing)} takımın oyuncuları CSV'den aranıyor...")
@@ -589,6 +539,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
             if total_before_filter > total_after_filter:
                 report_lines.append(f"CSV Sakatlık Filtresi: {total_before_filter - total_after_filter} oyuncu (CSV raporu) listeden çıkarıldı.")
 
+        # BU SATIR, ARTIK DOĞRU ÇALIŞACAK (çünkü team_ids_playing'i scraper ile doldurduk)
         key_players_df = current_season_players_df[
             current_season_players_df['TEAM_ID'].isin(team_ids_playing)
         ].copy()
@@ -605,6 +556,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         top_players = key_players_df.sort_values(by=['TEAM_ABBREVIATION', 'MIN_PER_GAME'], ascending=[True, False])
         top_players_grouped = top_players.groupby('TEAM_ABBREVIATION').head(TOP_N_PLAYERS_PER_TEAM).reset_index()
         
+        # BU HARİTALAR ARTIK SCRAPER'DAN GELİYOR
         top_players_grouped['GAME_ID'] = top_players_grouped['TEAM_ID'].map(team_to_game_map)
         top_players_grouped['MATCHUP'] = top_players_grouped['GAME_ID'].map(game_id_to_matchup_str)
         top_players_grouped['OPPONENT_TEAM_ID'] = top_players_grouped['TEAM_ID'].map(team_to_opponent_map) # B2B için
@@ -616,8 +568,6 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         
         report_lines.append(f"Toplam {len(top_players_final)} kilit ve aktif oyuncu bulundu.")
         
-        # 'current_season_players_df'yi (Tüm aktif oyuncular) Delta analizi için sakla
-        # 'top_players_final'i (Sadece Top 5'ler) barem girişi için döndür
         return report_lines, top_players_final, today_str, current_season_players_df, csv_inactive_player_names
 
     except Exception as e:
