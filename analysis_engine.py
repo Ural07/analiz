@@ -388,7 +388,7 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 # === HİBRİT ANALİZ - ADIM 1: OYUNCULARI AL ===
 # (b40.py'nin 'run_daily_analysis' fonksiyonunun ilk yarısı)
 # ========================================================================
-def get_players_for_hybrid_analysis(df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=60):
+def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=60):
     """
     API'den fikstürü çeker, aktif oyuncuları (bu sezon >= 3 maç) filtreler,
     CSV'den sakatları filtreler ve barem girilecek TOP 5 listesini döndürür.
@@ -435,6 +435,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_sezon, nba_team_id_to_abbr, timeou
             game_date=today_str, 
             league_id='00', 
             timeout=timeout_seconds,
+            headers=headers  # <-- BU ÇOK ÖNEMLİ
         )
         # --- DEĞİŞİKLİK BİTTİ ---
         games_df = scoreboard.game_header.get_data_frame() 
