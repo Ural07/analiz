@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import random
@@ -6,7 +5,7 @@ from datetime import datetime, timedelta
 import time
 from nba_api.stats.endpoints import scoreboardv2
 import traceback
-import requests
+import requests  # <-- Proxy hata yakalama için eklendi
 
 # ========================================================================
 # === ANALYZE_STREAKS (Sürüm 3.7 - Ortalamaya Dönüş Mantığı) ===
@@ -389,16 +388,48 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 # === HİBRİT ANALİZ - ADIM 1: OYUNCULARI AL ===
 # (b40.py'nin 'run_daily_analysis' fonksiyonunun ilk yarısı)
 # ========================================================================
+
+# <-- !!! GÜNCELLEME BURADA BAŞLIYOR !!! -->
+
+# ÖNCEKİ KONUŞMADAKİ 'Parametre Kayması' HATASINI GİDERMEK İÇİN FONKSİYON İMZASI DÜZELTİLDİ:
 def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=60):
     """
     API'den fikstürü çeker, aktif oyuncuları (bu sezon >= 3 maç) filtreler,
     CSV'den sakatları filtreler ve barem girilecek TOP 5 listesini döndürür.
+    
+    Proxy (Webshare) ve Headers (Tarayıcı Kimliği) kullanacak şekilde güncellendi.
     """
     
     report_lines = [] # Kullanıcıya gösterilecek log metni
     TOP_N_PLAYERS_PER_TEAM = 5
     
     try:
+        # --- 1. Webshare Proxy Listeniz ---
+        # Buraya Webshare'in size verdiği 10 adet proxy'yi yapıştırın.
+        # Format: 'http://KULLANICIADI:SIFRE@IP:PORT'
+        
+        WEBSHARE_PROXY_LIST = [
+            "http://zuysrbid:02k84bf9gqi1@216.10.27.159:6837", # Örnek: "http://abc:123@1.2.3.4:8080"
+            #"http://PROXY_2_BURAYA_YAPISTIRIN",
+            #"http://PROXY_3_BURAYA_YAPISTIRIN",
+            #"http://PROXY_4_BURAYA_YAPISTIRIN",
+            #"http://PROXY_5_BURAYA_YAPISTIRIN",
+            #"http://PROXY_6_BURAYA_YAPISTIRIN",
+            #"http://PROXY_7_BURAYA_YAPISTIRIN",
+            #"http://PROXY_8_BURAYA_YAPISTIRIN",
+            #"http://PROXY_9_BURAYA_YAPISTIRIN",
+            #"http://PROXY_10_BURAYA_YAPISTIRIN",
+        ]
+
+        # --- 2. Sahte Tarayıcı Kimliği (Headers) ---
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Accept': 'application/json; charset=utf-8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://www.nba.com/',
+            'Origin': 'https://www.nba.com'
+        }
+
         # 1. Adım: Fikstür ve Sakatlık Verilerini Çek
         report_lines.append(f"Analiz başladı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -413,90 +444,63 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         today_str = target_date.strftime('%Y-%m-%d')
 
         report_lines.append(f"NBA.com'dan {today_str} fikstürü çekiliyor...")
+        report_lines.append(f"{len(WEBSHARE_PROXY_LIST)} adet proxy'den rastgele biri seçilecek...")
         
         time.sleep(1.0) # API'yi yavaşlat
-        # --- YENİ KOD: Proxy (Vekil Sunucu) Ayarı ---
-    # NBA API'ye, Render'ın IP'si engellendiyse
-    # ücretsiz bir vekil sunucu kullanmasını emrediyoruz.
 
-    # --- YENİ KOD BİTTİ ---
-        scoreboard = scoreboardv2.ScoreboardV2(game_date=today_str, league_id='00', timeout=timeout_seconds)
-        # --- YENİ KOD: Sahte Tarayıcı Kimliği ---
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-            'Accept': 'application/json; charset=utf-8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://www.nba.com/',
-            'Origin': 'https://www.nba.com'
-        }
-        # --- YENİ KOD BİTTİ ---
-        
-        # --- DEĞİŞEN SATIR ---
-        #scoreboard = scoreboardv2.ScoreboardV2(
-        #    game_date=today_str, 
-        #    league_id='00', 
-        #    timeout=timeout_seconds,
-        #    headers=headers  # <-- BU ÇOK ÖNEMLİ
-        #)
-        # --- DEĞİŞİKLİK BİTTİ ---
-        # --- !! ÇÖZÜM BURADA: PROXY (VEKİL SUNUCU) !! ---
-        # Render'ın IP'si engellendiyse, dışarıdan bir IP kullanmalıyız.
-        # NOT: Ücretsiz proxy'ler %99 oranında YAVAŞTIR, GÜVENİLMEZDİR veya ÇALIŞMAZ.
-        # Bu sorunu kalıcı olarak çözmek için ücretli bir proxy servisi
-        # (örn: BrightData, Smartproxy, Webshare.io) kullanmanız gerekebilir.
-        
-        # Aşağıdaki adresi bir ücretsiz listeden örnek olarak ekliyorum.
-        # Muhtemelen bu da çalışmayacak, çalışan bir tane bulmanız gerekecek.
-        # Format: 'http://IP_ADRESI:PORT'
-        # Veya 'http://KULLANICIADI:SIFRE@IP_ADRESI:PORT'
-        
-        # --- DEĞİŞTİRİLECEK ALAN ---
-        # Lütfen buraya GÜNCEL ve ÇALIŞAN bir proxy adresi girin
-        # (Google'da "free proxy list" aratabilirsiniz, ancak şansınız düşük)
-        proxy_url = 'http://50.173.14.151:80' # ÖRNEK (Muhtemelen çalışmıyor)
-        # --- DEĞİŞTİRİLECEK ALAN BİTTİ ---
-
-        proxies_dict = {
-            'http': proxy_url,
-            'https': proxy_url,
-        }
-        report_lines.append(f"Proxy kullanılıyor: {proxy_url}")
-        
-        # --- DEĞİŞEN SATIR ---
+        # --- 3. API ÇAĞRISI (Proxy + Headers ile) ---
         try:
-            # Hem headers, hem timeout, hem de proxies parametrelerini ekliyoruz
-            # (timeout_seconds'ı 1000 değil, 60'ta tutun. Proxy yavaşsa bile 60 sn yeterlidir)
+            # Listeden rastgele bir proxy seç
+            proxy_url = random.choice(WEBSHARE_PROXY_LIST)
+            
+            # Seçilen proxy'yi kullanmak için sözlük oluştur
+            proxies_dict = {
+                'http': proxy_url,
+                'https': proxy_url,
+            }
+            
+            # Loglara hangi proxy'nin denendiğini yaz (şifreyi gizleyerek)
+            proxy_ip_port = "Bilinmiyor"
+            if '@' in proxy_url:
+                proxy_ip_port = proxy_url.split('@')[-1]
+            elif '//' in proxy_url:
+                 proxy_ip_port = proxy_url.split('//')[-1]
+            
+            report_lines.append(f"Proxy deneniyor: {proxy_ip_port}")
+
+            # API çağrısını hem headers, hem timeout, hem de proxies ile yap
             scoreboard = scoreboardv2.ScoreboardV2(
                 game_date=today_str, 
                 league_id='00', 
-                timeout=timeout_seconds, # Bu 60 olarak kalsın
+                timeout=timeout_seconds, # Bu app.py'den 60 olarak geliyor
                 headers=headers,
                 proxies=proxies_dict  # <-- PROXY'Yİ BURADA KULLAN
             )
             
         except requests.exceptions.Timeout:
-            # Proxy'nin kendisi zaman aşımına uğrarsa
-            report_lines.append(f"KRİTİK HATA: Proxy ({proxy_url}) veya NBA.com zaman aşımına uğradı (Timeout).")
-            report_lines.append("   -> Lütfen çalışan YENİ bir proxy adresi deneyin.")
+            report_lines.append(f"KRİTİK HATA: Proxy ({proxy_ip_port}) veya NBA.com zaman aşımına uğradı (Timeout).")
+            report_lines.append("   -> Başka bir proxy denemek için 'Oyuncu Listesi Al'a tekrar basın.")
             return report_lines, None, today_str, None, None
             
         except requests.exceptions.ConnectionError:
-            # Proxy'ye hiç bağlanamazsa
-            report_lines.append(f"KRİTİK HATA: Proxy'ye ({proxy_url}) bağlanılamadı (ConnectionError).")
-            report_lines.append("   -> Proxy adresi muhtemelen kapalı veya yanlış.")
+            report_lines.append(f"KRİTİK HATA: Proxy'ye ({proxy_ip_port}) bağlanılamadı (ConnectionError).")
+            report_lines.append("   -> Proxy listesindeki bu adres kapalı veya yanlış olabilir.")
+            report_lines.append("   -> Başka bir proxy denemek için 'Oyuncu Listesi Al'a tekrar basın.")
             return report_lines, None, today_str, None, None
             
         except Exception as e:
-            # Diğer tüm hatalar
-            report_lines.append(f"KRİTİK HATA (Proxy/API): {e}")
-            report_lines.append(f"   -> Proxy ({proxy_url}) çalışmıyor veya NBA.com API'si çöktü.")
+            # Proxy listesi boşsa veya formatı bozuksa burası çalışır
+            if "WEBSHARE_PROXY_LIST" in str(e):
+                report_lines.append("KRİTİK HATA: Proxy listeniz (WEBSHARE_PROXY_LIST) boş veya hatalı.")
+                report_lines.append("   -> Lütfen listenizi 'http://kullanici:sifre@ip:port' formatında doldurun.")
+            else:
+                report_lines.append(f"KRİTİK HATA (Proxy/API): {e}")
+                report_lines.append(f"   -> Denenen Proxy: {proxy_ip_port}")
             return report_lines, None, today_str, None, None
         
-        # --- DEĞİŞİKLİK BİTTİ ---
-
-
+        # --- GÜNCELLEME BİTTİ ---
+        
         games_df = scoreboard.game_header.get_data_frame() 
-
         
         # CSV Sakatlık Okuma
         try:
@@ -513,7 +517,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
 
         if games_df.empty:
             report_lines.append(f"Seçilen tarih ({today_str}) için oynanacak maç bulunamadı.")
-            return report_lines, None, today_str # Raporu ve boş oyuncu listesi döndür
+            return report_lines, None, today_str, None, None # Hata tuple'ını düzelt
 
         report_lines.append(f"Fikstür çekildi. {len(games_df)} maç bulundu.")
         
@@ -551,14 +555,20 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         CURRENT_SEASON_START_DATE = '2025-09-01' 
         if df_oyuncu_sezon.empty:
             report_lines.append(f"HATA: 'oyuncu_sezon_istatistikleri' tablosu boş.")
-            return report_lines, None, today_str
+            return report_lines, None, today_str, None, None # Hata tuple'ı
 
+        # --- DÜZELTME: df_oyuncu_mac GP filtresi için KULLANILMIYOR ---
+        # GP (Oynanan Maç) filtresi 'df_oyuncu_sezon' üzerinden yapılmalı.
+        # df_oyuncu_mac, oyuncu maç geçmişi analizleri (analyze_streaks) için kullanılır.
+        # Bu fonksiyonun amacı SADECE fikstürü çekmek ve Top 5 listesini oluşturmaktır.
+        
+        # 'oyuncu_sezon_istatistikleri' tablosundan GP'ye göre filtrele
         active_player_ids = set(df_oyuncu_sezon[df_oyuncu_sezon['GP'] >= 3]['PLAYER_ID'])
         
         
         if not active_player_ids:
             report_lines.append(f"HATA: '{CURRENT_SEASON_START_DATE}' tarihinden sonra 3'ten fazla maç (GP >= 3) oynamış kimse bulunamadı.")
-            return report_lines, None, today_str
+            return report_lines, None, today_str, None, None # Hata tuple'ı
 
         report_lines.append(f"CSV Filtresi: '{CURRENT_SEASON_START_DATE}' sonrası {len(active_player_ids)} aktif oyuncu (GP >= 3) bulundu.")
         
@@ -588,7 +598,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, nba_team_id_
         
         if key_players_df.empty:
             report_lines.append("Hata: Fikstürdeki takımlar, 'oyuncu_sezon_istatistikleri.csv' dosyanızdaki (GP >= 3 olan ve aktif) hiçbir oyuncuyla eşleşmedi.")
-            return report_lines, None, today_str
+            return report_lines, None, today_str, None, None # Hata tuple'ı
         
         key_players_df['MIN_PER_GAME'] = key_players_df.apply(
             lambda row: row['MIN'] / row['GP'] if row['GP'] > 0 else 0,
