@@ -46,7 +46,7 @@ try:
      today_str, 
      current_season_players_df, 
      csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
-            df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=300
+            df_oyuncu_sezon, nba_team_id_to_abbr, timeout_seconds=800
      )
 
     if top_players_final is None:
