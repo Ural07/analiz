@@ -515,16 +515,16 @@ def get_players_for_hybrid_analysis(
             
             # 3. Filtreyi uygula
             original_count = len(key_players_df)
-            key_players_df = key_players_df[key_players_df['total_matches'] >= 80].copy()
+            key_players_df = key_players_df[key_players_df['total_matches'] >=50].copy()
             filtered_count = len(key_players_df)
             
             if original_count > filtered_count:
-                report_lines.append(f"ROOKIE FİLTRESİ: {original_count - filtered_count} oyuncu, 80 maçtan az veriye sahip olduğu için listeden çıkarıldı.")
+                report_lines.append(f"ROOKIE FİLTRESİ: {original_count - filtered_count} oyuncu, 50 maçtan az veriye sahip olduğu için listeden çıkarıldı.")
             else:
-                report_lines.append("ROOKIE FİLTRESİ: Tüm oyuncular 80 maç barajını geçti.")
+                report_lines.append("ROOKIE FİLTRESİ: Tüm oyuncular 50 maç barajını geçti.")
         
         if key_players_df.empty:
-            report_lines.append("Hata: Rookie filtresinden (80+ maç) sonra analiz edilecek oyuncu kalmadı.")
+            report_lines.append("Hata: Rookie filtresinden (50+ maç) sonra analiz edilecek oyuncu kalmadı.")
             return report_lines, None, today_str, None, None 
         # <--- GÜNCELLEME 1 (ROOKIE FİLTRESİ) BİTTİ ---
 

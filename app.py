@@ -1,6 +1,6 @@
 # Dosya Adı: app.py
 # GÖREV: S3'ten 3 dosyayı indirir (DB, Fikstür, Sakatlık)
-# GÜNCELLEME: Login ekranı ortalandı ve çoklu kullanıcı desteği eklendi.
+# GÜNCELLEME: Ana Sayfa (route_index) artık session'da kayıtlı son analizi yüklüyor.
 
 from flask import Flask, render_template, request, redirect, url_for, session, abort, jsonify 
 import pandas as pd
@@ -84,7 +84,6 @@ DATA_LOCK = threading.Lock()
 
 # ======================================================
 # === VERİ YÜKLEME (S3'TEN İNDİRME) ===
-# (Bu fonksiyonda değişiklik yok)
 # ======================================================
 
 def load_data_from_s3():
@@ -196,7 +195,6 @@ def load_data_from_s3():
 
 # ======================================================
 # === HAFIZA (CACHE & LOG) YÖNETİMİ ===
-# (Bu bölümde değişiklik yok)
 # ======================================================
 
 def load_cache():
@@ -276,19 +274,11 @@ app.secret_key = 'sizin-cok-gizli-anahtariniz-12345'
 # ======================================================
 # === KULLANICI GİRİŞ (LOGIN) SİSTEMİ (GÜNCELLENDİ) ===
 # ======================================================
-# --- GÜNCELLEME 1: Çoklu Kullanıcı Sözlüğü ---
-# ESKİ KODLAR SİLİNDİ:
-# ADMIN_USERNAME = os.environ.get('ADMIN_USER', 'admin')
-# ADMIN_PASSWORD = os.environ.get('ADMIN_PASS', '12345')
-
-# YENİ KOD:
 # Kullanıcıları buraya ekleyebilirsiniz: "kullanici_adi": "sifre"
-# BU İKİ SATIRI KENDİNİZE GÖRE GÜNCELLEYİN:
 ALLOWED_USERS = {
     "onurella": "bokagizli06",   # <--- 1. KULLANICIYI BURADAN DEĞİŞTİRİN
     "ural": "123123123123"  # <--- 2. KULLANICIYI BURADAN DEĞİŞTİRİN
 }
-# --- GÜNCELLEME BİTTİ ---
 
 def login_required(f):
     @wraps(f)
@@ -313,13 +303,10 @@ def route_login():
         username = request.form.get('username')
         password = request.form.get('password')
         
-        # --- GÜNCELLEME 2: Kullanıcı Kontrolü ---
-        # ESKİ KOD SİLİNDİ:
-        # if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-        # YENİ KOD:
+        # Çoklu kullanıcı kontrolü
         if username in ALLOWED_USERS and ALLOWED_USERS[username] == password:
             session['logged_in'] = True
-            print(f"Giriş başarılı! (Kullanıcı: {username})") # Hangi kullanıcının girdiğini logla
+            print(f"Giriş başarılı! (Kullanıcı: {username})") 
             next_url = request.form.get('next')
             if next_url:
                 return redirect(next_url)
@@ -328,7 +315,7 @@ def route_login():
             error = 'Geçersiz Kullanıcı Adı veya Şifre'
             print("Giriş denemesi başarısız.")
     
-    # --- GÜNCELLEME 3: HTML Formu Ortalandı ve Şekillendirildi ---
+    # Ortalanmış HTML Formu
     return f'''
         <!DOCTYPE html>
         <html lang="tr">
@@ -371,7 +358,7 @@ def route_login():
                     margin-bottom: 15px;
                     border: 1px solid #ddd;
                     border-radius: 4px;
-                    box-sizing: border-box; /* Genişliğin padding'i içermesi için */
+                    box-sizing: border-box; 
                 }}
                 input[type="submit"] {{
                     width: 100%;
@@ -408,7 +395,6 @@ def route_login():
         </body>
         </html>
     '''
-    # --- GÜNCELLEME BİTTİ ---
 
 @app.route('/logout')
 def route_logout():
@@ -417,36 +403,57 @@ def route_logout():
 
 # ======================================================
 # === WEB SAYFASI ROTALARI (SAYFA ADRESLERİ) ===
-# (Bu bölümde değişiklik yok)
 # ======================================================
 
+# --- GÜNCELLEME: 'route_index' (Ana Sayfa) artık session'dan veri okuyor ---
 @app.route('/')
 @login_required
 def route_index():
+    """ 
+    Ana sayfa (Günün Analizi sekmesi)
+    GÜNCELLEME: Artık session'da kayıtlı son analiz sonuçlarını da yükler.
+    """
+    # Session'dan son hibrit analiz sonuçlarını çek
+    # (Bunlar sadece /run-analysis tarafından kaydedilir, /oyuncu-analizi tarafından değil)
+    all_results = session.get('last_full_analysis_results', [])
+    top_2_picks = session.get('last_diverse_recommendations', [])
+    
+    # 'sonuclar' (rapor metni) session'da saklanmıyor,
+    # bu yüzden onu 'None' olarak bırakıyoruz.
+    # 'all_results_ready' session'daki verilere göre belirlenir.
+    all_results_ready = bool(all_results) 
+    
+    # (session'dan alınan bu veriler index.html'e gönderilir)
     return render_template("index.html", 
-                           sonuclar=None, 
-                           top_2_picks=[], 
-                           all_results_ready=False)
+                           sonuclar=None, # Rapor metni (pre) boş gelir
+                           top_2_picks=top_2_picks, # Top 2 kartları dolu gelir
+                           all_results_ready=all_results_ready) # "Tüm Sonuçlar" butonu görünür
+# --- GÜNCELLEME BİTTİ ---
 
 @app.route('/oyuncu')
 @login_required
 def route_oyuncu():
+    """ Oyuncu Analizi sekmesi (GET) """
     return render_template("oyuncu.html", players=ALL_PLAYERS_LIST, report_string=None)
 
 @app.route('/takim')
 @login_required
 def route_takim():
+    """ Takım Analizi sekmesi (GET) """
     return render_template("takim.html", teams=ALL_TEAMS_LIST, report_string=None)
 
 @app.route('/backtest')
 @login_required
 def route_backtest():
+    """ Analiz Başarısı sekmesi (GET) """
     sorted_dates = sorted(analysis_log.keys(), reverse=True)
+    # (backtest.html'in bu rotayı çağıran yeni butonları içermesi gerekir)
     return render_template("backtest.html", log_dates=sorted_dates)
 
 @app.route('/veri-guncelle') 
 @login_required
 def route_veri_guncelle():
+    """Veri güncelleme sayfasını gösterir."""
     last_load = DATA_CACHE.get("data_last_loaded", "Veri henüz yüklenmedi")
     return render_template("veri_guncelle.html", 
                            message=f"Son Veri Yükleme Zamanı: {last_load}",
@@ -455,6 +462,7 @@ def route_veri_guncelle():
 @app.route('/refresh')
 @login_required
 def route_refresh_data():
+    """Verileri S3'ten zorla yeniden yükler."""
     print("Manuel veri yenileme (S3'ten indirme) tetiklendi...")
     success = load_data_from_s3()
     if success:
@@ -468,6 +476,7 @@ def route_refresh_data():
 @app.route('/browse-data/<string:file>') 
 @login_required
 def route_browse_data(file=None):
+    """Bellekteki verileri gösterir."""
     file_key = request.args.get('file') or file
     column_names = []
     file_name = ""
@@ -515,6 +524,7 @@ def route_browse_data(file=None):
 @app.route('/api/get_data/<string:file_key>')
 @api_login_required 
 def route_get_data(file_key):
+    """DataTables için JSON verisi sağlar."""
     print(f"API verisi talep edildi: {file_key}")
     print("Veri kilidi alınıyor (API)...")
     with DATA_LOCK:
@@ -554,16 +564,21 @@ def route_get_data(file_key):
 @app.route('/all-results')
 @login_required
 def route_all_results():
+    """ 'Tüm Sonuçları Göster' sayfası """
     sorted_results = session.get('last_full_analysis_results', [])
     if not sorted_results:
+        # Eğer session'da sonuç yoksa, ana sayfaya yönlendir
         return redirect(url_for('route_index'))
+        
     main_screen_picks = session.get('last_diverse_recommendations', [])
+    
     top_4_diverse = []
     seen_games_top4 = set()
     other_results = []
     
     for aday in sorted_results:
         game_id = aday.get('game_id', None)
+        
         if aday['pts_prob'] >= MINIMUM_PATTERN_PROBABILITY: 
             if len(top_4_diverse) < 4: 
                 if game_id not in seen_games_top4:
@@ -582,10 +597,56 @@ def route_all_results():
                            main_screen_picks=main_screen_picks,
                            MINIMUM_PATTERN_PROBABILITY=MINIMUM_PATTERN_PROBABILITY
                            )
+                           
+# --- YENİ ROTA (GÜNÜN ANALİZİ) ---
+@app.route('/gunun-analizi')
+@login_required
+def route_gunun_analizi():
+    """
+    Sadece session'da saklanan son HİBRİT analizi gösterir.
+    'layout.html'deki yeni buton burayı çağırmalıdır.
+    """
+    # Session'dan son hibrit analiz sonuçlarını çek
+    all_results = session.get('last_full_analysis_results', [])
+    top_2_picks = session.get('last_diverse_recommendations', [])
+
+    # 'all_results.html' şablonunu yeniden kullanalım
+    # (veya isterseniz 'gunun_analizi.html' adında yeni bir template oluşturabilirsiniz)
+    
+    if not all_results:
+        # Eğer session'da sonuç yoksa, ana sayfaya yönlendir
+        return redirect(url_for('route_index'))
+        
+    # 'all_results.html' şablonunun ihtiyaç duyduğu verileri oluşturalım
+    top_4_diverse = []
+    seen_games_top4 = set()
+    other_results = []
+    
+    for aday in all_results:
+        game_id = aday.get('game_id', None)
+        
+        if aday['pts_prob'] >= MINIMUM_PATTERN_PROBABILITY: 
+            if len(top_4_diverse) < 4: 
+                if game_id not in seen_games_top4:
+                    top_4_diverse.append(aday)
+                    seen_games_top4.add(game_id)
+                else:
+                    other_results.append(aday) 
+            else:
+                other_results.append(aday) 
+        else:
+            other_results.append(aday)
+            
+    return render_template("all_results.html", 
+                           top_4_diverse=top_4_diverse,
+                           other_results=other_results,
+                           main_screen_picks=top_2_picks, # 'last_diverse_recommendations'
+                           MINIMUM_PATTERN_PROBABILITY=MINIMUM_PATTERN_PROBABILITY
+                           )
+# --- YENİ ROTA BİTTİ ---
 
 # ======================================================
 # === ANALİZ TETİKLEYİCİLERİ ===
-# (Bu bölümde değişiklik yok)
 # ======================================================
 
 @app.route('/takim-analizi', methods=['POST'])
@@ -635,6 +696,7 @@ def handle_player_analysis():
                 df_oyuncu_sezon=df_oyuncu_sezon,
                 ANALYSIS_RANGE=ANALYSIS_RANGE
             )
+            # NOT: Bu sonuçlar session'a KAYDEDİLMEZ (istediğiniz gibi)
             return render_template(
                 "oyuncu.html", 
                 players=ALL_PLAYERS_LIST,      
@@ -652,7 +714,6 @@ def handle_player_analysis():
 
 # ======================================================
 # === HİBRİT ANALİZ TETİKLEYİCİLERİ ===
-# (Bu bölümde değişiklik yok)
 # ======================================================
 
 @app.route('/get-players')
@@ -777,8 +838,10 @@ def handle_run_analysis():
             all_adaylar_clean = clean_data_for_json(all_adaylar)
             top_2_picks_clean = clean_data_for_json(top_2_picks)
 
+            # --- GÜNCELLEME: Session'a kaydetme (Zaten yapılıyordu) ---
             session['last_full_analysis_results'] = all_adaylar_clean 
             session['last_diverse_recommendations'] = top_2_picks_clean
+            # --- BİTTİ ---
             
             analysis_log[today_str] = all_adaylar_clean
             save_log()
@@ -798,7 +861,6 @@ def handle_run_analysis():
 
 # ======================================================
 # === BACKTEST TETİKLEYİCİLERİ ===
-# (Bu bölümde değişiklik yok)
 # ======================================================
 
 @app.route('/run-backtest', methods=['POST'])
@@ -882,7 +944,7 @@ def handle_total_backtest():
                                report_other=[],
                                report_summary=report_summary)
 
-# --- LOG SİLME FONKSİYONLARI (Değişiklik yok) ---
+# --- LOG SİLME FONKSİYONLARI ---
 @app.route('/clear-logs', methods=['POST'])
 @login_required
 def handle_clear_logs():
@@ -929,7 +991,6 @@ def handle_delete_log_date():
 
 # ======================================================
 # === UYGULAMAYI BAŞLAT ===
-# (Bu bölümde değişiklik yok)
 # ======================================================
 
 try: 
