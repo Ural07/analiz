@@ -159,11 +159,12 @@ def analyze_wl_streaks(data):
 
 def analyze_team_logic(team_name, threshold, df_takim_mac):
     report_lines = [] 
+    # Not: Bu fonksiyon 'df_takim_mac' (geçmiş) kullanır, bu doğrudur.
     team_mac_data = df_takim_mac[df_takim_mac['TEAM_NAME'] == team_name].sort_values(by='GAME_DATE')
     total_team_matches = len(team_mac_data)
 
     report_lines.append(f"ANALİZ: {team_name.upper()}")
-    report_lines.append(f"Kaynak: maclar.csv ({total_team_matches} maç kaydı bulundu)")
+    report_lines.append(f"Kaynak: (Geçmiş Veriler) ({total_team_matches} maç kaydı bulundu)")
     report_lines.append("="*50 + "\n")
 
     if team_mac_data.empty:
@@ -354,13 +355,17 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 
 # <-- !!! GÜNCELLEME BURADA BAŞLIYOR !!! -->
 
-# 'app.py'den 'df_takim_mac' alacak şekilde imzayı güncelle
-def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, df_takim_mac, nba_team_id_to_abbr):
+# 'app.py'den 'df_fikstur' (yeni) alacak şekilde imzayı güncelle
+def get_players_for_hybrid_analysis(
+    df_fikstur,            # <--- YENİ: Bu, 'fikstur.json'dan gelen DataFrame
+    df_oyuncu_mac,         # <--- Bu, 'nba_analiz.db'den gelen geçmiş oyuncu maçları
+    df_oyuncu_sezon,       # <--- Bu, 'nba_analiz.db'den gelen sezon istatistikleri
+    nba_team_id_to_abbr    # <--- Bu, app.py'de oluşturulan harita
+    ):
     """
-    API'den fikstürü çeker.
-    GÜNCELLEME: Tüm dış API/Proxy/Scraping çağrıları kaldırıldı.
-    Fikstür, 'app.py'den gelen ve 'veri_cek.py'nin doldurduğu
-    'df_takim_mac' (maclar tablosu) üzerinden okunuyor.
+    GÜNCELLEME: Fikstür, 'app.py'den gelen ve S3'ten indirilen
+    'df_fikstur' (fikstur.json) üzerinden okunuyor.
+    'df_takim_mac' (geçmiş) artık bu fonksiyonda kullanılmıyor.
     """
     
     report_lines = [] 
@@ -374,53 +379,36 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, df_takim_mac
     
     try:
         # 1. Adım: Fikstür ve Sakatlık Verilerini Çek
-        report_lines.append(f"Analiz başladı: {datetime.now().strftime('%Y-m-%d %H:%M:%S')}")
+        report_lines.append(f"Analiz başladı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-        # Saat farkı düzeltmesi (Aynı kaldı)
-        now_turkey = datetime.now()
-        if now_turkey.hour >= 0 and now_turkey.hour < 7:
-            target_date = now_turkey - timedelta(days=1)
-            report_lines.append(f"Saat farkı düzeltildi: NBA fikstürü için tarih DÜNE ({target_date.strftime('%Y-%m-%d')}) ayarlandı.")
-        else:
-            target_date = now_turkey
+        # Tarih bilgisi artık doğrudan fikstür dosyasından geliyor
+        # (Eğer fikstür boşsa, yine de bugünü kullanalım)
+        today_str = datetime.now().strftime('%Y-%m-%d')
         
-        today_str = target_date.strftime('%Y-%m-%d')
-        today_date_obj = target_date.date() # Karşılaştırma için 'date' objesi
+        # --- 2. FİSTÜRÜ HAFIZADAN (df_fikstur) ÇEK ---
+        report_lines.append(f"Hafızadaki (df_fikstur) verisi işleniyor...")
 
-        # --- 2. FİSTÜRÜ VERİTABANINDAN (HAFIZADAN) ÇEK ---
-        
-        report_lines.append(f"Veritabanı (df_takim_mac) {today_str} fikstürü için filtreleniyor...")
-        
-        # 'df_takim_mac' içinden sadece bugünün maçlarını filtrele
-        # .dt.date kullanarak tarihleri karşılaştır
-        df_today_games = df_takim_mac[df_takim_mac['GAME_DATE'].dt.date == today_date_obj].copy()
-
-        if df_today_games.empty:
-            report_lines.append(f"Seçilen tarih ({today_str}) için 'df_takim_mac' (maclar tablosu) içinde maç bulunamadı.")
-            report_lines.append("   -> Lütfen önce 'Veri Güncelle' sayfasından 'veri_cek.py' scriptini çalıştırın.")
+        # Hata mesajı sizin teşhisinizdi, aynen kullanıyorum:
+        if df_fikstur.empty:
+            report_lines.append(f"Hafızadaki 'df_fikstur' (fikstur.json) boş.")
+            report_lines.append(f"   -> Lütfen lokalden 'python3 fikstur_cek.py' ve 'python3 db_gonder.py' çalıştırın.")
+            report_lines.append(f"   -> Ardından 'Veri Güncelle' sayfasından 'Yenile' butonuna basın.")
             return report_lines, None, today_str, None, None 
 
         # --- 3. HARİTALARI DOLDUR ---
         # Benzersiz GAME_ID'leri bul
-        unique_game_ids = df_today_games['GAME_ID'].unique()
+        unique_game_ids = df_fikstur['GAME_ID'].unique()
         
         report_lines.append(f"Fikstür bulundu. {len(unique_game_ids)} maç bulundu.")
 
         for game_id in unique_game_ids:
-            game_rows = df_today_games[df_today_games['GAME_ID'] == game_id]
+            # Fikstür DataFrame'inden o maça ait 2 satırı (iki takım) al
+            game_rows = df_fikstur[df_fikstur['GAME_ID'] == game_id]
             
             if len(game_rows) == 2:
                 team_a_id = game_rows.iloc[0]['TEAM_ID']
                 team_b_id = game_rows.iloc[1]['TEAM_ID']
-                
-                # MATCHUP string'i 'LAL @ BOS' formatındadır
-                matchup_str = game_rows.iloc[0]['MATCHUP']
-                
-                # (Eğer veritabanında 'MATCHUP' yoksa diye yedek)
-                if not matchup_str:
-                     team_a_abbr = nba_team_id_to_abbr.get(team_a_id, "???")
-                     team_b_abbr = nba_team_id_to_abbr.get(team_b_id, "???")
-                     matchup_str = f"{team_a_abbr} vs {team_b_abbr}" # Yönü bilemeyiz ama yeterli
+                matchup_str = game_rows.iloc[0]['MATCHUP'] # fikstur_cek.py bunu oluşturdu
                 
                 game_id_to_matchup_str[game_id] = matchup_str
                 
@@ -434,19 +422,20 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, df_takim_mac
                 team_to_opponent_map[team_b_id] = team_a_id
             
             else:
-                report_lines.append(f"UYARI: GAME_ID {game_id} için 2 takım bulunamadı (veritabanı hatası?). Atlanıyor.")
+                report_lines.append(f"UYARI: GAME_ID {game_id} için 2 takım bulunamadı (fikstür verisi hatası?). Atlanıyor.")
 
         if not team_ids_playing:
             report_lines.append("HATA: Fikstür bulundu ancak takım ID'leri işlenemedi.")
             return report_lines, None, today_str, None, None
             
-        # --- TÜM DIŞ ARAMALAR BÖLÜMÜ BİTTİ ---
+        # --- FİKSTÜR ÇEKME BÖLÜMÜ BİTTİ ---
         
         
         # --- 4. Kodun Geri Kalanı (Değişiklik Yok) ---
         
         # CSV Sakatlık Okuma
         try:
+            # (NOT: Bu dosyanın da S3'e atılması VEYA git'e eklenmesi gerekir)
             df_injury_report = pd.read_csv("nba-injury-report.csv")
             csv_inactive_player_names = set(df_injury_report['Player'].dropna())
             report_lines.append(f"CSV Sakatlık Raporu: {len(csv_inactive_player_names)} oyuncu 'nba-injury-report.csv' dosyasında bulundu.")
@@ -459,24 +448,24 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, df_takim_mac
             csv_inactive_player_names = set()
 
         report_lines.append("="*60)
-        report_lines.append(f"Oynayacak {len(team_ids_playing)} takımın oyuncuları CSV'den aranıyor...")
+        report_lines.append(f"Oynayacak {len(team_ids_playing)} takımın oyuncuları veritabanından (nba_analiz.db) aranıyor...")
 
-        # 2. Adım: Kilit Oyuncuları CSV'den Bul
+        # 2. Adım: Kilit Oyuncuları 'df_oyuncu_sezon'dan Bul
         report_lines.append(f"Her takımın en çok süre alan (TOP {TOP_N_PLAYERS_PER_TEAM}) oyuncusu listelenecek...")
 
         CURRENT_SEASON_START_DATE = '2025-09-01' 
         if df_oyuncu_sezon.empty:
-            report_lines.append(f"HATA: 'oyuncu_sezon_istatistikleri' tablosu boş.")
+            report_lines.append(f"HATA: 'oyuncu_sezon_istatistikleri' (nba_analiz.db) tablosu boş.")
             return report_lines, None, today_str, None, None 
 
         active_player_ids = set(df_oyuncu_sezon[df_oyuncu_sezon['GP'] >= 3]['PLAYER_ID'])
         
         
         if not active_player_ids:
-            report_lines.append(f"HATA: '{CURRENT_SEASON_START_DATE}' tarihinden sonra 3'ten fazla maç (GP >= 3) oynamış kimse bulunamadı.")
+            report_lines.append(f"HATA: 3'ten fazla maç (GP >= 3) oynamış kimse bulunamadı.")
             return report_lines, None, today_str, None, None 
 
-        report_lines.append(f"CSV Filtresi: '{CURRENT_SEASON_START_DATE}' sonrası {len(active_player_ids)} aktif oyuncu (GP >= 3) bulundu.")
+        report_lines.append(f"Filtre: {len(active_player_ids)} aktif oyuncu (GP >= 3) bulundu.")
         
         all_season_players_df = df_oyuncu_sezon.copy()
         
@@ -503,7 +492,7 @@ def get_players_for_hybrid_analysis(df_oyuncu_mac, df_oyuncu_sezon, df_takim_mac
         ].copy()
         
         if key_players_df.empty:
-            report_lines.append("Hata: Fikstürdeki takımlar, 'oyuncu_sezon_istatistikleri.csv' dosyanızdaki (GP >= 3 olan ve aktif) hiçbir oyuncuyla eşleşmedi.")
+            report_lines.append("Hata: Fikstürdeki takımlar (fikstur.json), 'oyuncu_sezon_istatistikleri' (nba_analiz.db) dosyanızdaki hiçbir oyuncuyla eşleşmedi.")
             return report_lines, None, today_str, None, None 
         
         key_players_df['MIN_PER_GAME'] = key_players_df.apply(
@@ -541,8 +530,8 @@ def run_full_analysis_logic(
     top_players_final, # Adım 1'den gelen Top 5 oyuncu listesi (DataFrame)
     current_season_players_df, # Adım 1'den gelen TÜM aktif oyuncular (Delta için)
     csv_inactive_player_names, # Adım 1'den gelen sakat isimleri
-    df_oyuncu_mac,
-    df_takim_mac,
+    df_oyuncu_mac,  # Geçmiş oyuncu maçları (nba_analiz.db)
+    df_takim_mac,   # Geçmiş takım maçları (nba_analiz.db) - B2B KONTROLÜ İÇİN
     ANALYSIS_RANGE,
     MINIMUM_PATTERN_PROBABILITY,
     today_str
@@ -602,6 +591,7 @@ def run_full_analysis_logic(
         s_avg_fg_pct = s_fgm / s_fga if s_fga > 0 else 0.0
 
         # B2B verisini BİR KEZ hesapla
+        # !! ÖNEMLİ !!: Burası B2B kontrolü için df_takim_mac (GEÇMİŞ) kullanır. Bu doğrudur.
         player_played_yesterday = not df_takim_mac[
             (df_takim_mac['TEAM_ID'] == team_id) & 
             (df_takim_mac['GAME_DATE'].dt.date == yesterday_date_obj)
