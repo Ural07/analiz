@@ -53,8 +53,24 @@ TOP_N_PLAYERS_PER_TEAM = 5
 CURRENT_SEASON_START_DATE = '2025-09-01'
 
 # --- Dosya Yolları ---
-CACHE_FILE = "barem_cache.json"
-LOG_FILE = "analysis_log.json"
+# --- Dosya Yolları (Kalıcı Disk için Güncellendi) ---
+# Render'da oluşturduğumuz diskin yolu
+DATA_DIR = "/var/data/projem"
+
+# Bu klasörün var olduğundan emin ol (Render'da ilk çalıştırmada)
+try:
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+        print(f"Başarılı: Kalıcı disk dizini '{DATA_DIR}' oluşturuldu.")
+except Exception as e:
+    print(f"UYARI: Kalıcı disk dizini '{DATA_DIR}' oluşturulamadı: {e}")
+    # Hata olursa, en azından mevcut (geçici) dizine yazsın
+    DATA_DIR = "." 
+
+# Dosya yollarını bu kalıcı dizine yönlendir
+CACHE_FILE = os.path.join(DATA_DIR, "barem_cache.json")
+LOG_FILE = os.path.join(DATA_DIR, "analysis_log.json")
+# --- GÜNCELLEME BİTTİ ---
 
 # --- Global Değişkenler ---
 DATA_CACHE = {"data_last_loaded": None}
