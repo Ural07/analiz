@@ -827,6 +827,52 @@ def handle_total_backtest():
 # ======================================================
 # === UYGULAMAYI BAŞLAT ===
 # ======================================================
+# ======================================================
+# === SEÇİLİ LOG TARİHİNİ SİLME ROTASI (YENİ) ===
+# ======================================================
+
+@app.route('/delete-log-date', methods=['POST'])
+@login_required
+def handle_delete_log_date():
+    """
+    Kullanıcı 'Seçilen Tarihi Sil' butonuna bastığında çalışır.
+    Formdan 'log_date' anahtarını alır ve analysis_log'dan siler.
+    """
+    global analysis_log
+    
+    # Formdan hangi tarihin silineceğini al
+    date_to_delete = request.form.get('log_date')
+    
+    if not date_to_delete:
+        print("HATA: Silinecek tarih seçilmedi.")
+        return redirect(url_for('route_backtest'))
+
+    print(f"'{date_to_delete}' tarihli analiz logunu silme talebi alındı...")
+    
+    # Veri kilidini al (log dosyasına yazarken başka bir işlem olmasın)
+    with DATA_LOCK:
+        try:
+            # 1. Hafızadaki (global) log sözlüğünden (dictionary) o tarihi (key) sil
+            if date_to_delete in analysis_log:
+                del analysis_log[date_to_delete]
+                
+                # 2. Değişikliği kalıcı diske (analysis_log.json) kaydet
+                save_log() 
+                print(f"Başarılı: '{date_to_delete}' tarihi loglardan silindi.")
+            else:
+                print(f"UYARI: '{date_to_delete}' tarihi logda bulunamadı (zaten silinmiş olabilir).")
+                
+        except Exception as e:
+            print(f"HATA: Log '{date_to_delete}' tarihi silinirken hata oluştu: {e}")
+            # Hata olsa bile backtest sayfasına geri dön
+    
+    # İşlem bittikten sonra Backtest sayfasına geri yönlendir
+    return redirect(url_for('route_backtest'))
+
+# ======================================================
+# === UYGULAMAYI BAŞLAT ===
+# ======================================================
+
 
 try: 
     load_data_from_s3() 
