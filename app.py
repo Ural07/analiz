@@ -1,23 +1,21 @@
 # Dosya Adı: app.py
-# KULLANIM: Render'daki ana sunucu scriptiniz. (S3 Yöntemi - Düzeltilmiş)
+# KULLANIM: Render'daki ana sunucu scriptiniz. (S3 Yöntemi - __name__ hatası DÜZELTİLDİ)
 # GÖREV: S3'ten 'nba_analiz.db' dosyasını indirir ve hafızaya yükler.
 
-# 'urllib.request' (dosya indirmek için) eklendi
 from flask import Flask, render_template, request, redirect, url_for, session, abort, jsonify 
 import pandas as pd
-import numpy as np # (Tip kontrolü)
+import numpy as np 
 from datetime import datetime, timedelta
-import traceback # Hata ayıklama için
+import traceback 
 import json
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from functools import wraps
 import time
-import urllib.request # S3'ten dosya indirmek için eklendi
-import threading # DATA_LOCK için bu hala gerekli
+import urllib.request 
+import threading 
 
-# b40.py'den dönüştürdüğümüz "beyin" dosyamızı içe aktar
 import analysis_engine 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,22 +30,20 @@ DB_FILE_URL = os.getenv("DB_FILE_URL")
 if DB_FILE_URL is None:
     print("KRİTİK HATA: .env dosyasında DB_FILE_URL (S3 dosya adresi) bulunamadı.")
 
-# Render'daki geçici disk yolu (dosyanın indirileceği yer)
 RENDER_DB_PATH = "/tmp/nba_analiz.db" 
 engine = None 
 
-# --- Analiz Ayarları (Aynı kaldı) ---
+# --- Analiz Ayarları ---
 ANALYSIS_RANGE = 4.0 
 MINIMUM_PATTERN_PROBABILITY = 75.0 
 TOP_N_PLAYERS_PER_TEAM = 5 
 CURRENT_SEASON_START_DATE = '2025-09-01'
 
-# --- Dosya Yolları (Aynı kaldı) ---
+# --- Dosya Yolları ---
 CACHE_FILE = "barem_cache.json"
 LOG_FILE = "analysis_log.json"
 
 # --- Global Değişkenler ---
-# (Pylance'ın hata verdiği değişken burada tanımlanıyor)
 DATA_CACHE = {
     "df_takimlar": pd.DataFrame(),
     "df_oyuncular": pd.DataFrame(),
@@ -55,9 +51,8 @@ DATA_CACHE = {
     "df_oyuncu_sezon": pd.DataFrame(),
     "df_oyuncu_mac": pd.DataFrame(),
     "nba_team_id_to_abbr": {},
-    "data_last_loaded": None # <--- Düzeltilmiş fonksiyon bunu güncelleyecek
+    "data_last_loaded": None 
 }
-
 df_oyuncu_mac = None
 df_oyuncu_sezon = None
 df_takim_mac = None
@@ -68,8 +63,6 @@ nba_abbr_to_id = {}
 cached_barems = {}
 cached_player_list_key = ""
 analysis_log = {}
-
-# Veri kilidi
 DATA_LOCK = threading.Lock() 
 
 
@@ -77,13 +70,11 @@ DATA_LOCK = threading.Lock()
 # === VERİ YÜKLEME (S3'TEN İNDİRME) ===
 # ======================================================
 
-# --- DÜZELTME BU FONKSİYONDA YAPILDI ---
 def load_data_from_s3():
     """
     S3'teki 'nba_analiz.db' dosyasını indirir,
     Render diskine kaydeder ve tüm global DataFrame'leri doldurur.
     """
-    # DÜZELTME 1: Global listesine DATA_CACHE eklendi
     global df_oyuncu_mac, df_oyuncu_sezon, df_takim_mac, ALL_TEAMS_LIST, ALL_PLAYERS_LIST
     global nba_team_id_to_abbr, nba_abbr_to_id, engine, DATA_CACHE
     
@@ -118,7 +109,7 @@ def load_data_from_s3():
             
             print("Veritabanından okuma tamamlandı. Veri tipleri dönüştürülüyor...")
             
-            # --- Veri Tipi Dönüşümleri ---
+            # Veri Tipi Dönüşümleri
             cols_mac = ['PTS', 'FGA', 'FGM', 'FG_PCT', 'FTA', 'FTM', 'FT_PCT', 'REB', 'AST']
             for col in cols_mac:
                 if col in df_oyuncu_mac.columns:
@@ -131,20 +122,18 @@ def load_data_from_s3():
             
             df_takim_mac['PTS'] = pd.to_numeric(df_takim_mac['PTS'], errors='coerce').fillna(0)
 
-            # --- Tarih Dönüşümleri ---
+            # Tarih Dönüşümleri
             df_oyuncu_mac['GAME_DATE'] = pd.to_datetime(df_oyuncu_mac['GAME_DATE'], errors='coerce')
             df_takim_mac['GAME_DATE'] = pd.to_datetime(df_takim_mac['GAME_DATE'], errors='coerce')
             
             df_oyuncu_mac = df_oyuncu_mac.dropna(subset=['GAME_DATE', 'PLAYER_ID', 'GAME_ID'])
             df_takim_mac = df_takim_mac.dropna(subset=['GAME_DATE']) 
 
-            # --- Listeleri Oluştur ---
+            # Listeleri Oluştur
             ALL_PLAYERS_LIST = sorted(df_oyuncu_mac['PLAYER_NAME'].unique())
             ALL_TEAMS_LIST = sorted(df_takim_mac['TEAM_NAME'].unique())
             
             print(f"Başarılı: {len(ALL_PLAYERS_LIST)} oyuncu, {len(ALL_TEAMS_LIST)} takım belleğe yüklendi.")
-
-            # DÜZELTME 2: Yükleme zamanı 'DATA_CACHE' içine kaydedildi
             DATA_CACHE["data_last_loaded"] = time.ctime()
             
         except Exception as e:
@@ -175,13 +164,10 @@ def load_data_from_s3():
         print(f"--- VERİ BAŞARIYLA YÜKLENDİ ({end_time - start_time:.2f} saniye) ---")
         print("Veri kilidi serbest bırakıldı (load_data_from_s3 - Başarılı).")
         return True 
-# --- DÜZELTME BİTTİ ---
-
 
 # ======================================================
 # === HAFIZA (CACHE & LOG) YÖNETİMİ ===
 # ======================================================
-# (Bu bölüm AYNEN KALDI, değişiklik yok)
 
 def load_cache():
     global cached_barems, cached_player_list_key
@@ -231,9 +217,6 @@ def save_log():
         print(f"HATA: Analiz logları '{LOG_FILE}' dosyasına kaydedilemedi: {e}")
 
 def clean_data_for_json(data_list): 
-    """
-    (Bu fonksiyon AYNEN KALDI, değişiklik yok)
-    """
     cleaned_list = []
     if not isinstance(data_list, list):
         return []
@@ -255,14 +238,13 @@ def clean_data_for_json(data_list):
                 cleaned_item[key] = value 
         cleaned_list.append(cleaned_item)
     return cleaned_list
-# --- BİTTİ ---
 
 # --- Flask Uygulaması ---
 app = Flask(__name__)
 app.secret_key = 'sizin-cok-gizli-anahtariniz-12345' 
 
 # ======================================================
-# === KULLANICI GİRİŞ (LOGIN) SİSTEMİ (Aynen kaldı) ===
+# === KULLANICI GİRİŞ (LOGIN) SİSTEMİ ===
 # ======================================================
 ADMIN_USERNAME = os.environ.get('ADMIN_USER', 'admin')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASS', '12345')
@@ -319,7 +301,6 @@ def route_logout():
 # ======================================================
 # === WEB SAYFASI ROTALARI (SAYFA ADRESLERİ) ===
 # ======================================================
-# (Bu bölüm AYNEN KALDI, değişiklik yok)
 
 @app.route('/')
 @login_required
@@ -348,29 +329,20 @@ def route_backtest():
 @app.route('/veri-guncelle') 
 @login_required
 def route_veri_guncelle():
-    """
-    (Pylance'ın hata verdiği fonksiyon - şimdi düzgün çalışmalı)
-    Veri güncelleme sayfasını gösterir.
-    """
-    # Düzeltilmiş 'load_data_from_s3' sayesinde 'DATA_CACHE' artık güncel
     last_load = DATA_CACHE.get("data_last_loaded", "Veri henüz yüklenmedi")
     return render_template("veri_guncelle.html", 
                            message=f"Son Veri Yükleme Zamanı: {last_load}",
-                           is_running=False) # Sunucuda işlem çalışmadığı için hep False
+                           is_running=False) 
 
 @app.route('/refresh')
 @login_required
 def route_refresh_data():
-    """
-    Verileri S3'ten zorla yeniden yükler.
-    """
     print("Manuel veri yenileme (S3'ten indirme) tetiklendi...")
     success = load_data_from_s3()
     if success:
         print("Veri başarıyla S3'ten yeniden indirildi.")
     else:
         print("Veri yüklenirken HATA oluştu.")
-    
     return redirect(url_for('route_veri_guncelle'))
 
 
@@ -378,9 +350,6 @@ def route_refresh_data():
 @app.route('/browse-data/<string:file>') 
 @login_required
 def route_browse_data(file=None):
-    """
-    (Bu fonksiyon AYNEN KALDI, değişiklik yok)
-    """
     file_key = request.args.get('file') or file
     column_names = []
     file_name = ""
@@ -421,9 +390,6 @@ def route_browse_data(file=None):
 @app.route('/api/get_data/<string:file_key>')
 @api_login_required 
 def route_get_data(file_key):
-    """
-    (Bu fonksiyon AYNEN KALDI, değişiklik yok)
-    """
     print(f"API verisi talep edildi: {file_key}")
     print("Veri kilidi alınıyor (API)...")
     with DATA_LOCK:
@@ -456,9 +422,6 @@ def route_get_data(file_key):
 @app.route('/all-results')
 @login_required
 def route_all_results():
-    """
-    (Bu fonksiyon AYNEN KALDI, değişiklik yok)
-    """
     sorted_results = session.get('last_full_analysis_results', [])
     if not sorted_results:
         return redirect(url_for('route_index'))
@@ -488,17 +451,13 @@ def route_all_results():
                            MINIMUM_PATTERN_PROBABILITY=MINIMUM_PATTERN_PROBABILITY
                            )
 
-
 # ======================================================
-# === ANALİZ TETİKLEYİCİLERİ (Aynen kaldı) ===
+# === ANALİZ TETİKLEYİCİLERİ ===
 # ======================================================
 
 @app.route('/takim-analizi', methods=['POST'])
 @login_required
 def handle_team_analysis():
-    """
-    (Bu fonksiyon AYNEN KALDI, değişiklik yok)
-    """
     with DATA_LOCK: 
         try:
             team_name = request.form.get('team_name')
@@ -529,9 +488,6 @@ def handle_team_analysis():
 @app.route('/oyuncu-analizi', methods=['POST'])
 @login_required
 def handle_player_analysis():
-    """
-    (Bu fonksiyon AYNEN KALDI, değişiklik yok)
-    """
     with DATA_LOCK: 
         try:
             player_name = request.form.get('player_name')
@@ -562,15 +518,12 @@ def handle_player_analysis():
             )
 
 # ======================================================
-# === HİBRİT ANALİZ TETİKLEYİCİLERİ (Aynen kaldı) ===
+# === HİBRİT ANALİZ TETİKLEYİCİLERİ ===
 # ======================================================
 
 @app.route('/get-players')
 @login_required
 def handle_get_players():
-    """
-    (Bu fonksiyon AYNEN KALDI, değişiklik yok)
-    """
     today_str = datetime.now().strftime('%Y-%m-%d')
     report_lines = []
     top_players_final = None
@@ -628,9 +581,6 @@ def handle_get_players():
 @app.route('/run-analysis', methods=['POST'])
 @login_required
 def handle_run_analysis():
-    """
-    (Bu fonksiyon AYNEN KALDI, değişiklik yok)
-    """
     global cached_barems, analysis_log
     
     with DATA_LOCK: 
@@ -703,15 +653,12 @@ def handle_run_analysis():
 
 
 # ======================================================
-# === BACKTEST TETİKLEYİCİLERİ (Aynen kaldı) ===
+# === BACKTEST TETİKLEYİCİLERİ ===
 # ======================================================
 
 @app.route('/run-backtest', methods=['POST'])
 @login_required
 def handle_backtest():
-    """
-    (Bu fonksiyon AYNEN KALDI, değişiklik yok)
-    """
     with DATA_LOCK:
         date_str_key = request.form.get('log_date')
         if not date_str_key:
@@ -743,9 +690,6 @@ def handle_backtest():
 @app.route('/run-total-backtest')
 @login_required
 def handle_total_backtest():
-    """
-    (Bu fonksiyon AYNEN KALDI, değişiklik yok)
-    """
     with DATA_LOCK:
         if df_oyuncu_mac is None:
             print("HATA (Total Backtest): df_oyuncu_mac bellekte bulunamadı.")
@@ -797,27 +741,32 @@ def handle_total_backtest():
 # ======================================================
 # === UYGULAMAYI BAŞLAT ===
 # ======================================================
+
+# --- DÜZELTME BURADA: Veri yükleme 'if __name__' bloğunun DIŞINA alındı ---
+# Gunicorn'un (Render) 'app.py' dosyasını import ettiğinde çalışması için
+# bu kodların 'if' bloğunun dışında, modül seviyesinde olması gerekir.
+
+try: 
+    load_data_from_s3() 
+except Exception as e:
+    print("="*50)
+    print(f"KRİTİK BAŞLANGIÇ HATASI: {e}")
+    print("Veritabanı S3'ten indirilemedi veya okunamadı.")
+    print("1. 'DB_FILE_URL' ortam değişkeninin Render'da ayarlı olduğundan emin olun.")
+    print("2. 'db_gonder.py' scriptini lokalde çalıştırdığınızdan emin olun.")
+    print("Uygulama, '/veri-guncelle' sayfası hariç düzgün çalışmayacak.")
+    print("="*50)
+
+# Kalıcı Hafızayı yükle
+load_cache()
+load_log()
+# --- DÜZELTME BİTTİ ---
+
+
 if __name__ == "__main__":
+    # Bu blok artık SADECE 'python app.py' ile LOKALDE çalıştırılırsa kullanılacak.
+    # Render (Gunicorn) bu bloğu ÇALIŞTIRMAZ.
     
-    # Sunucu başlarken S3'ten yüklemeyi dene
-    try: 
-        load_data_from_s3() 
-    except Exception as e:
-        print("="*50)
-        print(f"KRİTİK BAŞLANGIÇ HATASI: {e}")
-        print("Veritabanı S3'ten indirilemedi veya okunamadı.")
-        print("1. 'DB_FILE_URL' ortam değişkeninin Render'da ayarlı olduğundan emin olun.")
-        print("2. 'db_gonder.py' scriptini lokalde çalıştırdığınızdan emin olun.")
-        print("Uygulama, '/veri-guncelle' sayfası hariç düzgün çalışmayacak.")
-        print("="*50)
-    
-    # Kalıcı Hafızayı yükle (Aynen kaldı)
-    load_cache()
-    load_log()
-    
-    print("Flask sunucusu http://0.0.0.0:5002 adresinde başlatılıyor...")
-    # Port'u ortam değişkeninden al, yoksa 5002 yap
+    print("Flask sunucusu LOKALDE (debug modda) http://0.0.0.0:5002 adresinde başlatılıyor...")
     port = int(os.environ.get('PORT', 5002))
-    # 'use_reloader=True' Geliştirme (debug) için iyidir, ancak Render 'gunicorn' kullanırken buna gerek kalmaz.
-    # 'debug=False' olarak ayarlamak daha güvenlidir.
-    app.run(debug=False, host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=port, use_reloader=True)
