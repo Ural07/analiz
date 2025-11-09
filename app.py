@@ -1,6 +1,5 @@
 # Dosya Adı: app.py
-# KULLANIM: Render'daki ana sunucu scriptiniz. (S3 Yöntemi - Fikstür Düzeltmesi)
-# GÖREV: S3'ten 'nba_analiz.db' VE 'fikstur.json' dosyalarını indirir.
+# GÖREV: S3'ten 'nba_analiz.db' VE 'games_today.json' dosyalarını indirir.
 
 from flask import Flask, render_template, request, redirect, url_for, session, abort, jsonify 
 import pandas as pd
@@ -26,23 +25,21 @@ print(f"Uygulama Ana Dizini (BASE_DIR): {BASE_DIR}")
 # ======================================================
 
 load_dotenv()
-# DB_FILE_URL'yi .env'den al (Render'da ayarlı)
 DB_FILE_URL = os.getenv("DB_FILE_URL")
 
 # --- YENİ: Fikstür URL'sini de almamız lazım ---
-# (DB_FILE_URL'den otomatik oluşturacağız)
-FIXTURE_FILE_URL = ""
+GAMES_TODAY_URL = ""
 if DB_FILE_URL:
-    # 'nba_analiz.db' kısmını 'fikstur.json' ile değiştir
-    FIXTURE_FILE_URL = DB_FILE_URL.replace("nba_analiz.db", "fikstur.json")
-    print(f"Fikstür URL'si ayarlandı: {FIXTURE_FILE_URL}")
+    # 'nba_analiz.db' kısmını 'games_today.json' ile değiştir
+    GAMES_TODAY_URL = DB_FILE_URL.replace("nba_analiz.db", "games_today.json")
+    print(f"Fikstür URL'si ayarlandı: {GAMES_TODAY_URL}")
 else:
     print("KRİTİK HATA: .env dosyasında DB_FILE_URL (S3 dosya adresi) bulunamadı.")
 # --- BİTTİ ---
 
 
 RENDER_DB_PATH = "/tmp/nba_analiz.db" 
-RENDER_FIXTURE_PATH = "/tmp/fikstur.json" # Fikstürün indirileceği yer
+RENDER_GAMES_TODAY_PATH = "/tmp/games_today.json" # Fikstürün indirileceği yer
 engine = None 
 
 # --- Analiz Ayarları ---
@@ -56,13 +53,11 @@ CACHE_FILE = "barem_cache.json"
 LOG_FILE = "analysis_log.json"
 
 # --- Global Değişkenler ---
-DATA_CACHE = {
-    "data_last_loaded": None 
-}
+DATA_CACHE = {"data_last_loaded": None}
 df_oyuncu_mac = None
 df_oyuncu_sezon = None
 df_takim_mac = None
-df_fikstur = pd.DataFrame() # YENİ: Fikstür için boş DataFrame
+df_games_today = pd.DataFrame() # YENİ: Fikstür için boş DataFrame
 ALL_TEAMS_LIST = []
 ALL_PLAYERS_LIST = []
 nba_team_id_to_abbr = {}
@@ -79,19 +74,19 @@ DATA_LOCK = threading.Lock()
 
 def load_data_from_s3():
     """
-    S3'ten 'nba_analiz.db' VE 'fikstur.json' dosyalarını indirir
+    S3'ten 'nba_analiz.db' VE 'games_today.json' dosyalarını indirir
     ve global DataFrame'leri doldurur.
     """
     global df_oyuncu_mac, df_oyuncu_sezon, df_takim_mac, ALL_TEAMS_LIST, ALL_PLAYERS_LIST
-    global nba_team_id_to_abbr, nba_abbr_to_id, engine, DATA_CACHE, df_fikstur
+    global nba_team_id_to_abbr, nba_abbr_to_id, engine, DATA_CACHE, df_games_today
     
     print("Veri kilidi alınıyor (load_data_from_s3)...") 
     with DATA_LOCK: 
         print("Veri yükleme fonksiyonu (load_data_from_s3) başladı...")
         start_time = time.time()
         
-        if not DB_FILE_URL or not FIXTURE_FILE_URL:
-            print("HATA: DB_FILE_URL veya FIXTURE_FILE_URL ayarlanmamış, veri çekilemiyor.")
+        if not DB_FILE_URL or not GAMES_TODAY_URL:
+            print("HATA: DB_FILE_URL veya GAMES_TODAY_URL ayarlanmamış, veri çekilemiyor.")
             return False
             
         try:
@@ -136,22 +131,18 @@ def load_data_from_s3():
             
             print(f"Başarılı: {len(ALL_PLAYERS_LIST)} oyuncu, {len(ALL_TEAMS_LIST)} takım belleğe yüklendi.")
             
-            # === BÖLÜM 2: Fikstürü İndir (fikstur.json) ===
-            print(f"S3'ten fikstür indiriliyor: {FIXTURE_FILE_URL}")
-            urllib.request.urlretrieve(FIXTURE_FILE_URL, RENDER_FIXTURE_PATH)
-            print(f"Fikstür başarıyla '{RENDER_FIXTURE_PATH}' konumuna indirildi.")
+            # === BÖLÜM 2: Fikstürü İndir (games_today.json) ===
+            print(f"S3'ten fikstür indiriliyor: {GAMES_TODAY_URL}")
+            urllib.request.urlretrieve(GAMES_TODAY_URL, RENDER_GAMES_TODAY_PATH)
+            print(f"Fikstür başarıyla '{RENDER_GAMES_TODAY_PATH}' konumuna indirildi.")
             
-            # JSON dosyasını oku
-            with open(RENDER_FIXTURE_PATH, 'r', encoding='utf-8') as f:
-                fikstur_datasi = json.load(f)
+            # JSON dosyasını doğrudan pandas ile oku (daha basit)
+            df_games_today = pd.read_json(RENDER_GAMES_TODAY_PATH)
             
-            # JSON'daki 'games' listesini DataFrame'e çevir
-            df_fikstur = pd.DataFrame(fikstur_datasi.get("games", []))
-            
-            if df_fikstur.empty:
-                print("UYARI: Fikstür dosyası bulundu ancak içi boş ('games' listesi yok).")
+            if df_games_today.empty:
+                print("UYARI: Fikstür dosyası bulundu ancak içi boş.")
             else:
-                print(f"Fikstür başarıyla belleğe yüklendi ({len(df_fikstur)} takım oynuyor).")
+                print(f"Fikstür başarıyla belleğe yüklendi ({len(df_games_today)} maç).")
             
             DATA_CACHE["data_last_loaded"] = time.ctime()
             
@@ -169,7 +160,6 @@ def load_data_from_s3():
             nba_abbr_to_id = {team['abbreviation']: team['id'] for team in nba_teams_all}
         except Exception:
              print("UYARI: nba-api 'get_teams' çağrısı başarısız. Bellekten yedek harita oluşturuluyor.")
-             # df_oyuncu_sezon boşsa bu da hata verir, o yüzden try-except içine alalım
              try:
                  team_data = df_oyuncu_sezon[['TEAM_ID', 'TEAM_ABBREVIATION']].drop_duplicates()
                  nba_team_id_to_abbr = pd.Series(
@@ -391,12 +381,12 @@ def route_browse_data(file=None):
             file_name = "oyuncu_sezon_istatistikleri.csv"
             target_df = df_oyuncu_sezon
         elif file_key == 'takim_mac' and df_takim_mac is not None:
-            file_name = "maclar.csv"
+            file_name = "maclar.csv (Geçmiş)"
             target_df = df_takim_mac
         # --- YENİ: Fikstür dosyasını da görüntüleyebilme ---
-        elif file_key == 'fikstur' and not df_fikstur.empty:
-            file_name = "fikstur.json"
-            target_df = df_fikstur
+        elif file_key == 'fikstur' and not df_games_today.empty:
+            file_name = "games_today.json (Fikstür)"
+            target_df = df_games_today
         # --- BİTTİ ---
             
         if target_df is not None:
@@ -433,8 +423,8 @@ def route_get_data(file_key):
         elif file_key == 'takim_mac' and df_takim_mac is not None:
             target_df = df_takim_mac
         # --- YENİ: Fikstür dosyasını da API ile gönderebilme ---
-        elif file_key == 'fikstur' and not df_fikstur.empty:
-            target_df = df_fikstur
+        elif file_key == 'fikstur' and not df_games_today.empty:
+            target_df = df_games_today
         # --- BİTTİ ---
         else:
             print("Veri kilidi serbest bırakıldı (API - Hata).")
@@ -443,6 +433,10 @@ def route_get_data(file_key):
             temp_df = target_df.copy()
             if 'GAME_DATE' in temp_df.columns:
                 temp_df['GAME_DATE'] = temp_df['GAME_DATE'].dt.date.astype(str).replace('NaT', None)
+            # Fikstürdeki GAME_DATE_EST için de aynı
+            if 'GAME_DATE_EST' in temp_df.columns:
+                temp_df['GAME_DATE_EST'] = pd.to_datetime(temp_df['GAME_DATE_EST']).dt.date.astype(str).replace('NaT', None)
+                
             data_records = temp_df.to_dict('records')
             data_records_clean = clean_data_for_json(data_records)
             print("Veri kilidi serbest bırakıldı (API - Başarılı).")
@@ -503,7 +497,7 @@ def handle_team_analysis():
             report_string = analysis_engine.analyze_team_logic(
                 team_name=team_name,
                 threshold=threshold,
-                df_takim_mac=df_takim_mac
+                df_takim_mac=df_takim_mac # Bu, geçmiş veritabanını kullanır (doğru)
             )
             return render_template(
                 "takim.html", 
@@ -561,7 +555,7 @@ def handle_player_analysis():
 def handle_get_players():
     """
     'OYUNCU LİSTESİ AL' butonu tıklandığında çalışır.
-    Fikstürü (df_fikstur) 'analysis_engine'e gönderir.
+    Fikstürü (df_games_today) 'analysis_engine'e gönderir.
     """
     global cached_barems, cached_player_list_key, nba_team_id_to_abbr, nba_abbr_to_id
     
@@ -573,17 +567,17 @@ def handle_get_players():
     with DATA_LOCK: 
         print("Oyuncu listesi alma talebi alındı...")
         
-        # --- DEĞİŞİKLİK BURADA: 'df_fikstur' (Fikstür) parametresi eklendi ---
+        # --- DEĞİŞİKLİK BURADA: 'df_games_today' (Fikstür) parametresi eklendi ---
         try:
             (report_lines, 
              top_players_final, 
              today_str, # Değişken burada güncellenecek
              current_season_players_df, 
              csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
-                 df_fikstur=df_fikstur, # <--- YENİ: Fikstür verisini buradan al
+                 df_games_today=df_games_today, # <--- YENİ: Fikstür verisini buradan al
                  df_oyuncu_mac=df_oyuncu_mac,
                  df_oyuncu_sezon=df_oyuncu_sezon,
-                 nba_team_id_to_abbr=nba_team_id_to_abbr
+                 nba_team_id_to_abbr=nba_team_id_to_abbr # Bu artık kullanılmıyor olabilir ama kalsın
              )
         # --- DEĞİŞİKLİK BİTTİ ---
         
@@ -614,7 +608,14 @@ def handle_get_players():
             report_lines.append("Hafızadaki baremler (cache) kullanılacak.")
         
         if top_players_final is not None:
-            for matchup_name, group_df in top_players_final.groupby('MATCHUP', sort=False):
+            # --- GÜNCELLEME: Gruplama anahtarı 'MATCHUP' ---
+            # (games_today.json 'MATCHUP' içermiyor, biz 'HOME_TEAM' ve 'AWAY_TEAM'i birleştireceğiz)
+            for game_id, group_df in top_players_final.groupby('GAME_ID', sort=False):
+                # İlk oyuncudan ev sahibi ve deplasman isimlerini al
+                home_team = group_df.iloc[0].get('HOME_TEAM', 'Ev Sahibi')
+                away_team = group_df.iloc[0].get('AWAY_TEAM', 'Deplasman')
+                matchup_name = f"{away_team} @ {home_team}" # Standart format
+                
                 grouped_players[matchup_name] = group_df.to_dict('records')
         
         return render_template("index.html", 
@@ -648,13 +649,13 @@ def handle_run_analysis():
         save_cache()
 
         # Adım 1'i tekrar çalıştır (Fikstürü tekrar gönder)
-        # --- DEĞİŞİKLİK BURADA: 'df_fikstur' (Fikstür) parametresi eklendi ---
+        # --- DEĞİŞİKLİK BURADA: 'df_games_today' (Fikstür) parametresi eklendi ---
         (report_lines, 
             top_players_final, 
             _, 
             current_season_players_df, 
             csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
-                 df_fikstur=df_fikstur, # <--- YENİ
+                 df_games_today=df_games_today, # <--- YENİ
                  df_oyuncu_mac=df_oyuncu_mac, 
                  df_oyuncu_sezon=df_oyuncu_sezon, 
                  nba_team_id_to_abbr=nba_team_id_to_abbr
@@ -791,28 +792,20 @@ def handle_total_backtest():
 # === UYGULAMAYI BAŞLAT ===
 # ======================================================
 
-# Gunicorn'un (Render) 'app.py' dosyasını import ettiğinde çalışması için
-# bu kodların 'if' bloğunun dışında, modül seviyesinde olması gerekir.
 try: 
     load_data_from_s3() 
 except Exception as e:
     print("="*50)
     print(f"KRİTİK BAŞLANGIÇ HATASI: {e}")
     print("Veritabanı S3'ten indirilemedi veya okunamadı.")
-    print("1. 'DB_FILE_URL' ortam değişkeninin Render'da ayarlı olduğundan emin olun.")
-    print("2. 'db_gonder.py' scriptini lokalde çalıştırdığınızdan emin olun.")
     print("Uygulama, '/veri-guncelle' sayfası hariç düzgün çalışmayacak.")
     print("="*50)
 
-# Kalıcı Hafızayı yükle
 load_cache()
 load_log()
 
 
 if __name__ == "__main__":
-    # Bu blok artık SADECE 'python app.py' ile LOKALDE çalıştırılırsa kullanılacak.
-    # Render (Gunicorn) bu bloğu ÇALIŞTIRMAZ.
-    
     print("Flask sunucusu LOKALDE (debug modda) http://0.0.0.0:5002 adresinde başlatılıyor...")
     port = int(os.environ.get('PORT', 5002))
     app.run(debug=True, host='0.0.0.0', port=port, use_reloader=True)
