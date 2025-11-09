@@ -1,106 +1,77 @@
 {% extends "layout.html" %}
-{% block title %}Analiz Başarısı (Backtest){% endblock %}
-
 {% block content %}
-<div class="container mt-4">
-    <div class="row">
-        <div class="col-lg-10 offset-lg-1">
 
-            <div class="card shadow-sm mb-4">
-                <div class="card-header">
-                    <h3>Backtest Kontrol Paneli</h3>
-                </div>
-                <div class="card-body">
-                    <p>Geçmiş analizlerin başarı oranını test etmek için lütfen log kaydı olan bir tarih seçin.</p>
-                    
-                    <form method="POST">
-                        <div class="input-group">
-                            <select name="log_date" class="form-select">
-                                {% if not log_dates %}
-                                    <option value="">Kayıtlı log bulunamadı</option>
-                                {% endif %}
-                                {% for date in log_dates %}
-                                    <option value="{{ date }}" {% if date == selected_date %}selected{% endif %}>
-                                        {{ date }}
-                                    </option>
-                                {% endfor %}
-                            </select>
-                            
-                            <button type="submit" 
-                                    formaction="{{ url_for('handle_backtest') }}" 
-                                    class="btn btn-primary">
-                                <i class="fas fa-search"></i> Seçilen Tarihi Kontrol Et
-                            </button>
-
-                            <button type="submit" 
-                                    formaction="{{ url_for('handle_delete_log_date') }}" 
-                                    class="btn btn-warning"
-                                    onclick="return confirm('Emin misiniz? Seçili olan tarihi loglardan kalıcı olarak silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')">
-                                <i class="fas fa-times"></i> Seçilen Tarihi Sil
-                            </button>
-
-                        </div>
-                    </form>
-                </div>
-                <div class="card-footer">
-                    <a href="{{ url_for('handle_total_backtest') }}" class="btn btn-info">
-                        <i class="fas fa-chart-line"></i> Tüm Logların Başarı Ortalaması
-                    </a>
-
-                    <form action="{{ url_for('handle_clear_logs') }}" method="POST" style="display: inline-block; margin-left: 10px;">
-                        <button type="submit" 
-                                class="btn btn-danger" 
-                                onclick="return confirm('ÇOK DİKKAT!\nTüm backtest logları (analysis_log.json) kalıcı olarak silinecek. Bu işlem geri alınamaz!')">
-                            <i class="fas fa-trash-alt"></i> TÜM LOGLARI TEMİZLE
-                        </button>
-                    </form>
-                </div>
-            </div>
-
-            {% if report_summary %}
-            <div class="card shadow-sm mb-4">
-                <div class="card-header bg-dark text-white">
-                    <h4>Analiz Sonuçları: {{ selected_date }}</h4>
-                </div>
-                <div class="card-body">
-                    
-                    <h5 class="card-title">Genel Başarı Özeti</h5>
-                    <div class="row text-center mb-3">
-                        {% for summary_text, summary_class in report_summary %}
-                            <div class="col-md-6">
-                                <div class="alert {{ 'alert-success' if 'BAŞARI' in summary_text.upper() else 'alert-secondary' }} p-3">
-                                    <strong class="{{ summary_class }}">{{ summary_text }}</strong>
-                                </div>
-                            </div>
-                        {% endfor %}
+<div class="row">
+    <div class="col-lg-4 col-md-5 mb-3">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">Kontrol Paneli</h5>
+                
+                <form action="/run-backtest" method="POST">
+                    <div class="mb-3">
+                        <label for="log_date" class="form-label">Geçmiş Analiz Tarihleri:</label>
+                        <select class="form-select" name="log_date" id="log_date" size="10" required>
+                            {% for date in log_dates %}
+                                <option value="{{ date }}"
+                                        {% if date == selected_date %}selected{% endif %}>
+                                    {{ date }}
+                                </option>
+                            {% endfor %}
+                        </select>
                     </div>
-
-                    {% if report_top4 %}
-                    <h5 class="card-title mt-4">Top 4 Öneri Detayları</h5>
-                    <ul class="list-group mb-3">
-                        {% for line_text, line_status in report_top4 %}
-                            <li class="list-group-item {{ 'list-group-item-success' if line_status == 'basarili' else ('list-group-item-danger' if line_status == 'basarisiz' else '') }}">
-                                <span class="{{ line_status }}">{{ line_text }}</span>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                    {% endif %}
-
-                    {% if report_other %}
-                    <h5 class="card-title mt-4">Diğer Analizler (Filtrelenmiş veya Düşük Skorlu)</h5>
-                    <ul class="list-group">
-                        {% for line_text, line_status in report_other %}
-                            <li class="list-group-item {{ 'list-group-item-success' if line_status == 'basarili' else ('list-group-item-danger' if line_status == 'basarisiz' else 'list-group-item-light text-muted') }}">
-                                <span class="{{ line_status }}">{{ line_text }}</span>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                    {% endif %}
-                </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary p-3">
+                            SEÇİLEN TARİHİ KONTROL ET
+                        </button>
+                    </div>
+                </form>
+                
+                <hr>
+                
+                <form action="/run-total-backtest" method="GET">
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-danger p-3">
+                            TÜM LOGLARI KONTROL ET (TOTAL BAŞARI)
+                        </button>
+                    </div>
+                </form>
+                
             </div>
-            {% endif %}
-
         </div>
     </div>
+
+    <div class="col-lg-8 col-md-7">
+        <h5>Başarı Analizi Sonuçları ({{ selected_date | default('Tarih Seçilmedi', true) }})</h5>
+        
+        {% if report_summary %}
+        <div class="card shadow-sm mb-3">
+            <div class="card-header">
+                <strong>BAŞARI ÖZETİ ({{ selected_date }})</strong>
+            </div>
+            <div class="card-body">
+                {% for line, tag in report_summary %}
+                    <p class="{{ tag }} mb-1">{{ line }}</p>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <pre class="form-control analysis-report" style="height: 600px;">
+{% if report_top4 or report_other %}
+--- 1. TOP 4 ÇEŞİTLİ ÖNERİLERİN BAŞARISI ---
+    {% for line, tag in report_top4 %}
+<span class="{{ tag }}">{{ line }}</span>
+    {% endfor %}
+
+--- 2. TÜM DİĞER ANALİZLERİN YÖNSEL BAŞARISI ---
+    {% for line, tag in report_other %}
+<span class="{{ tag }}">{{ line }}</span>
+    {% endfor %}
+{% else %}
+Lütfen kontrol etmek için bir tarih seçin veya tüm logları kontrol edin...
+{% endif %}
+        </pre>
+    </div>
 </div>
+
 {% endblock %}
