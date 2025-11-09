@@ -1,114 +1,45 @@
-{% extends "layout.html" %} 
+{% extends "layout.html" %}
+{% block title %}Veri Güncelleme{% endblock %}
+
 {% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-10 offset-md-1">
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h3>Veri Yönetimi (S3 Bulut Depolama)</h3>
+                </div>
+                <div class="card-body">
+                    <p class="lead">
+                        Veriler lokal bilgisayarınızdan (veri_cek_lokal.py -> db_gonder.py) Amazon S3'e yüklenir.
+                    </p>
+                    <p>
+                        Bu sayfa, S3'teki veritabanı dosyasını sunucu hafızasına manuel olarak yeniden yükler.
+                    </p>
+                    
+                    <hr>
+                    
+                    <h4>Mevcut Durum</h4>
+                    <div class="alert alert-info">
+                        <strong>Son Veri Yükleme Zamanı:</strong>
+                        <p class="mb-0">{{ message }}</p>
+                    </div>
 
-<style>
-    #status-box { 
-        border: 1px solid #ccc; 
-        padding: 10px; 
-        margin-top: 10px; 
-        background-color: #f8f9fa; /* Bootstrap 'pre' rengi */
-        white-space: pre-wrap; /* Mesajların düzgün görünmesi için */
-        font-family: "Courier New", Courier, monospace; /* Ana font ile aynı */
-        min-height: 50px;
-    }
-    
-    /* Bootstrap 'btn-danger' sınıfını ezelim */
-    #update-button {
-        font-weight: bold;
-    }
-</style>
+                    <hr>
 
-<h2>Veri Güncelleme Paneli</h2>
-<p>
-    Bu buton, <b>'veri_cek.py'</b> scriptini sunucu arka planında çalıştırır.
-    Bu işlem API'den veri çekeceği için birkça dakika sürebilir.
-    İşlem bittiğinde, sunucudaki CSV verileri otomatik olarak yenilenecektir.
-</p>
-<p class="text-danger">
-    <b>DİKKAT:</b> Bu işlem çalışırken (birkaç dakika boyunca) sitedeki diğer analizler kilitlenecektir.
-</p>
+                    <h4>İşlemler</h4>
+                    <p>Lokalden `db_gonder.py` script'ini çalıştırdıktan sonra buraya tıklayın:</p>
+                    
+                    <a href="{{ url_for('route_refresh_data') }}" class="btn btn-primary btn-lg">
+                        <i class="fas fa-sync-alt"></i> S3'ten Verileri Yeniden Yükle
+                    </a>
 
-<button id="update-button" class="btn btn-danger btn-lg" onclick="startUpdate()">
-    'veri_cek.py' Çalıştır ve Tüm CSV'leri Güncelle
-</button>
-
-<h3 class="mt-4">Güncelleme Durumu:</h3>
-<div id="status-box" class="form-control">
-    Durum kontrol ediliyor...
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
-
 {% block scripts %}
-<script>
-    const statusBox = document.getElementById('status-box');
-    const updateButton = document.getElementById('update-button');
-    let poller = null; // Durum sorgulayıcı
-
-    // 1. Durumu sunucudan çeken fonksiyon
-    async function getStatus() {
-        try {
-            // app.py'deki /get-update-status rotasını çağır
-            const response = await fetch("{{ url_for('handle_get_status') }}");
-            const data = await response.json();
-            
-            // Durum mesajını kutuya yaz
-            statusBox.textContent = data.message;
-            
-            if (data.is_running) {
-                // Eğer işlem çalışıyorsa butonu kapat ve sorgulamaya devam et
-                updateButton.disabled = true;
-                updateButton.textContent = "Güncelleme Çalışıyor...";
-                
-                // Hâla çalışıyorsa 3 saniye sonra tekrar sor
-                if (!poller) {
-                   poller = setInterval(getStatus, 3000);
-                }
-            } else {
-                // İşlem çalışmıyorsa butonu aç ve sorgulamayı durdur
-                updateButton.disabled = false;
-                updateButton.textContent = "'veri_cek.py' Çalıştır ve Tüm CSV'leri Güncelle";
-                
-                if (poller) {
-                    clearInterval(poller);
-                    poller = null;
-                }
-            }
-        } catch (e) {
-            statusBox.textContent = "Hata: Sunucu durumu alınamadı. " + e.message;
-        }
-    }
-
-    // 2. Güncellemeyi başlatan fonksiyon
-    async function startUpdate() {
-        if (!confirm("Veri güncelleme işlemini (veri_cek.py) başlatmak istediğinizden emin misiniz? Bu işlem birkaç dakika sürebilir.")) {
-            return;
-        }
-        
-        try {
-            // Butonu hemen kapat
-            updateButton.disabled = true;
-            statusBox.textContent = "Güncelleme başlatma talebi gönderiliyor...";
-            
-            // app.py'deki /start-update rotasını çağır
-            const response = await fetch("{{ url_for('handle_start_update') }}", { method: 'POST' });
-            const data = await response.json();
-            
-            statusBox.textContent = data.message;
-            
-            // Başlatma başarılıysa, durumu sorgulamaya başla
-            if (data.success) {
-                getStatus();
-            } else {
-                updateButton.disabled = false; // Başlatma başarısızsa butonu geri aç
-            }
-        } catch (e) {
-            statusBox.textContent = "Hata: Güncelleme başlatılamadı. " + e.message;
-            updateButton.disabled = false;
-        }
-    }
-
-    // Sayfa yüklendiğinde mevcut durumu hemen kontrol et
-    document.addEventListener('DOMContentLoaded', getStatus);
-</script>
 {% endblock %}
