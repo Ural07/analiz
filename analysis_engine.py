@@ -9,6 +9,7 @@ import traceback
 
 # ========================================================================
 # === ANALYZE_STREAKS (Sürüm 3.7 - Ortalamaya Dönüş Mantığı) ===
+# (Bu fonksiyonda değişiklik yok)
 # ========================================================================
 def analyze_streaks(data, threshold_col, threshold_val):
     if data.empty or threshold_col not in data.columns:
@@ -128,7 +129,7 @@ def analyze_streaks(data, threshold_col, threshold_val):
             current_type_str, prob_break_pct_float, avg_streak, int(current_length)) 
 
 # ========================================================================
-# (Diğer analyze_... fonksiyonlarında değişiklik yok)
+# (analyze_wl_streaks, analyze_team_logic - Değişiklik Yok)
 # ========================================================================
 def analyze_wl_streaks(data):
     if data.empty:
@@ -210,6 +211,9 @@ def analyze_team_logic(team_name, threshold, df_takim_mac):
     report_lines.append(f"  Tamamlanmış Mağlubiyet Serisi Ortalaması: {avg_loss:.2f} maç")
     return "\n".join(report_lines)
 
+# ========================================================================
+# --- GÜNCELLEME 2: 'analyze_player_logic' (Oyuncu Analizi Sekmesi) ---
+# ========================================================================
 def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sezon, ANALYSIS_RANGE):
     BASE_CONFIDENCE = 50.0
     VOLUME_WEIGHT_POSITIVE = 30.0  
@@ -217,6 +221,10 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
     EFFICIENCY_WEIGHT = 15.0       
 
     player_mac_data = df_oyuncu_mac[df_oyuncu_mac['PLAYER_NAME'] == player_name].sort_values(by='GAME_DATE')
+    # <--- GÜNCELLEME: Rapor için toplam maç sayısını al
+    total_match_count = len(player_mac_data) 
+    # --- BİTTİ ---
+
     player_all_seasons_sorted = df_oyuncu_sezon[
         (df_oyuncu_sezon['PLAYER_NAME'] == player_name) &
         (df_oyuncu_sezon['GP'] > 0) 
@@ -236,6 +244,11 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
     s_fgm = bu_sezon['FGM']
     s_avg_fg_pct = s_fgm / s_fga if s_fga > 0 else 0.0
     
+    # <--- GÜNCELLEME: Rapor için Takım ve Süre bilgilerini al
+    team_abbr = bu_sezon.get('TEAM_ABBREVIATION', '???')
+    avg_min_this_season = bu_sezon['MIN'] / gp_bs
+    # --- BİTTİ ---
+
     barems_to_analyze = [
         middle_barem - ANALYSIS_RANGE,
         middle_barem,
@@ -245,7 +258,7 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
     analysis_results = []
     report_string_list = [] 
     
-    report_string_list.append(f"ANALİZ: {player_name.upper()}")
+    report_string_list.append(f"ANALİZ: {player_name.upper()} ({team_abbr})") # <--- GÜNCELLEME: Takım adı eklendi
     report_string_list.append(f"Orta Barem: {middle_barem} PTS (Aralık: +/- {ANALYSIS_RANGE:.1f} PTS)")
     report_string_list.append("="*50 + "\n")
     report_string_list.append("ARALIK ANALİZİ (Desen + Hacim + Verimlilik)")
@@ -312,6 +325,7 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
         
         sinerji_skoru = (pts_prob_break_pct / 100.0) * (final_confidence / 100.0)
         
+        # <--- GÜNCELLEME: Rapor için ekstra verileri sözlüğe ekle
         analysis_results.append({
             'sinerji_skoru': sinerji_skoru,
             'name': player_name,
@@ -321,8 +335,12 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
             'pts_prob': pts_prob_break_pct,
             'pts_comment': full_pts_comment, 
             'comment_hacim': comment_hacim,
-            'comment_verimlilik': comment_verimlilik
+            'comment_verimlilik': comment_verimlilik,
+            'team_abbr': team_abbr,                 # <--- EKLENDİ
+            'total_match_count': total_match_count, # <--- EKLENDİ
+            'avg_min': avg_min_this_season          # <--- EKLENDİ
         })
+        # --- BİTTİ ---
         
     report_string_list.append("\n" + "="*50 + "\n")
     report_string_list.append("ARALIK ANALİZİ SONUÇLARI (Sinerjiye Göre Sıralı)")
@@ -334,33 +352,35 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
         reverse=True 
     )
 
+    # <--- GÜNCELLEME: Sonuç raporlamasını güncelle
     for i, aday in enumerate(all_adaylar, 1):
-        report_string_list.append(f"#{i}: {aday['name']} ({aday['threshold']:.1f} PTS {aday['direction']})")
+        report_string_list.append(f"#{i}: {aday['name']} ({aday['team_abbr']}) - ({aday['threshold']:.1f} PTS {aday['direction']})")
+        report_string_list.append(f"     (Veri: {aday['total_match_count']} Maç | Ort. Süre: {aday['avg_min']:.1f} dk)")
         report_string_list.append(f"  -> SİNERJİ SKORU: {aday['sinerji_skoru']:.3f}")
         report_string_list.append(f"     (Desen: %{aday['pts_prob']:.1f} | Güven: %{aday['confidence']})")
         report_string_list.append(f"  -> Desen Yorumu: {aday['pts_comment']}")
         report_string_list.append(f"  -> Hacim Yorumu: {aday['comment_hacim']}")
         report_string_list.append(f"  -> Verimlilik Yorumu: {aday['comment_verimlilik']}\n")
+    # --- BİTTİ ---
     
     return "\n".join(report_string_list), all_adaylar
 
 
 # ========================================================================
-# === HİBRİT ANALİZ - ADIM 1: OYUNCULARI AL ===
+# === GÜNCELLEME 1: 'get_players_for_hybrid_analysis' (Rookie Filtresi) ===
 # ========================================================================
 
-# --- BU FONKSİYON TAMAMEN GÜNCELLENDİ ---
-
 def get_players_for_hybrid_analysis(
-    df_games_today,        # <--- YENİ: Bu, 'games_today.json'dan gelen DataFrame
+    df_games_today,        
     df_oyuncu_mac,
     df_oyuncu_sezon,
-    nba_team_id_to_abbr,   # Bu app.py'den geliyor (artık kullanılmıyor ama kalsın)
-    df_injury_report       # <--- YENİ: Bu, 'nba-injury-report.csv'den gelen DataFrame
+    nba_team_id_to_abbr,   
+    df_injury_report       
     ):
     """
     GÜNCELLEME: Fikstür 'df_games_today' (json) üzerinden okunuyor.
     Sakatlıklar 'df_injury_report' (csv) üzerinden okunuyor.
+    YENİ: 80 maçtan az verisi olan oyuncular (rookie) filtreleniyor.
     """
     
     report_lines = [] 
@@ -370,12 +390,10 @@ def get_players_for_hybrid_analysis(
     game_id_to_matchup_str = {}
     team_to_opponent_map = {} 
     team_to_game_map = {}
-    csv_inactive_player_names = set() # <--- YENİ: Fonksiyonun başında tanımla
+    csv_inactive_player_names = set() 
     
     try:
-        # 1. Adım: Fikstür ve Sakatlık Verilerini Çek
         report_lines.append(f"Analiz başladı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
         today_str = datetime.now().strftime('%Y-%m-%d')
         
         # --- 2. FİSTÜRÜ HAFIZADAN (df_games_today) ÇEK ---
@@ -402,19 +420,15 @@ def get_players_for_hybrid_analysis(
                 game_id = game_row['GAME_ID']
                 team_a_id = game_row['HOME_TEAM_ID']
                 team_b_id = game_row['VISITOR_TEAM_ID']
-                
                 team_a_name = game_row['HOME_TEAM']
                 team_b_name = game_row['AWAY_TEAM']
-                matchup_str = f"{team_b_name} @ {team_a_name}" # Standart format
+                matchup_str = f"{team_b_name} @ {team_a_name}" 
                 
                 game_id_to_matchup_str[game_id] = matchup_str
-                
                 team_ids_playing.add(team_a_id)
                 team_ids_playing.add(team_b_id)
-                
                 team_to_game_map[team_a_id] = game_id
                 team_to_game_map[team_b_id] = game_id
-                
                 team_to_opponent_map[team_a_id] = team_b_id
                 team_to_opponent_map[team_b_id] = team_a_id
             
@@ -429,19 +443,12 @@ def get_players_for_hybrid_analysis(
             report_lines.append("HATA: Fikstür bulundu ancak takım ID'leri işlenemedi.")
             return report_lines, None, today_str, None, None
             
-        # --- FİKSTÜR ÇEKME BÖLÜMÜ BİTTİ ---
-        
-        
         # --- 4. SAKATLIKLARI HAFIZADAN (df_injury_report) OKU ---
-        
-        # 'pd.read_csv("nba-injury-report.csv")' bloğu SİLİNDİ
-        
         if df_injury_report.empty:
             report_lines.append("UYARI: 'nba-injury-report.csv' dosyası bulunamadı veya boş.")
             report_lines.append("   (Sakatlık filtresi ve Delta analizi CSV olmadan çalışmayacak.)")
             csv_inactive_player_names = set()
         else:
-            # 'Player' kolonu olduğundan emin ol
             if 'Player' in df_injury_report.columns:
                 csv_inactive_player_names = set(df_injury_report['Player'].dropna())
                 report_lines.append(f"CSV Sakatlık Raporu: {len(csv_inactive_player_names)} oyuncu 'nba-injury-report.csv' dosyasından (hafızadan) bulundu.")
@@ -449,21 +456,17 @@ def get_players_for_hybrid_analysis(
                 report_lines.append("UYARI: 'nba-injury-report.csv' dosyası yüklendi ancak 'Player' kolonu bulunamadı.")
                 csv_inactive_player_names = set()
         
-        # --- SAKATLIK OKUMA BÖLÜMÜ BİTTİ ---
-
         report_lines.append("="*60)
         report_lines.append(f"Oynayacak {len(team_ids_playing)} takımın oyuncuları veritabanından (nba_analiz.db) aranıyor...")
 
         # 2. Adım: Kilit Oyuncuları 'df_oyuncu_sezon'dan Bul
         report_lines.append(f"Her takımın en çok süre alan (TOP {TOP_N_PLAYERS_PER_TEAM}) oyuncusu listelenecek...")
-
-        CURRENT_SEASON_START_DATE = '2025-09-01' 
+ 
         if df_oyuncu_sezon.empty:
             report_lines.append(f"HATA: 'oyuncu_sezon_istatistikleri' (nba_analiz.db) tablosu boş.")
             return report_lines, None, today_str, None, None 
 
         active_player_ids = set(df_oyuncu_sezon[df_oyuncu_sezon['GP'] >= 3]['PLAYER_ID'])
-        
         
         if not active_player_ids:
             report_lines.append(f"HATA: 3'ten fazla maç (GP >= 3) oynamış kimse bulunamadı.")
@@ -491,7 +494,6 @@ def get_players_for_hybrid_analysis(
             if total_before_filter > total_after_filter:
                 report_lines.append(f"CSV Sakatlık Filtresi: {total_before_filter - total_after_filter} oyuncu (CSV raporu) listeden çıkarıldı.")
 
-        # 'team_ids_playing' set'i, fikstürdeki (games_today.json) takım ID'lerini içerir
         key_players_df = current_season_players_df[
             current_season_players_df['TEAM_ID'].isin(team_ids_playing)
         ].copy()
@@ -499,6 +501,33 @@ def get_players_for_hybrid_analysis(
         if key_players_df.empty:
             report_lines.append("Hata: Fikstürdeki takımlar (games_today.json), 'oyuncu_sezon_istatistikleri' (nba_analiz.db) dosyanızdaki hiçbir oyuncuyla eşleşmedi.")
             return report_lines, None, today_str, None, None 
+
+        # <--- GÜNCELLEME 1 (ROOKIE FİLTRESİ) BURADA BAŞLIYOR ---
+        if df_oyuncu_mac.empty:
+            report_lines.append("UYARI: 'oyuncu_mac_performanslari' (nba_analiz.db) tablosu boş.")
+            report_lines.append("   -> Rookie (80+ maç) filtresi uygulanamayacak.")
+        else:
+            # 1. Tüm oyuncuların toplam maç sayısını hesapla
+            match_counts = df_oyuncu_mac['PLAYER_ID'].value_counts()
+            
+            # 2. Bu maç sayılarını 'key_players_df' listesindeki oyuncularla eşleştir
+            key_players_df['total_matches'] = key_players_df['PLAYER_ID'].map(match_counts).fillna(0).astype(int)
+            
+            # 3. Filtreyi uygula
+            original_count = len(key_players_df)
+            key_players_df = key_players_df[key_players_df['total_matches'] >= 80].copy()
+            filtered_count = len(key_players_df)
+            
+            if original_count > filtered_count:
+                report_lines.append(f"ROOKIE FİLTRESİ: {original_count - filtered_count} oyuncu, 80 maçtan az veriye sahip olduğu için listeden çıkarıldı.")
+            else:
+                report_lines.append("ROOKIE FİLTRESİ: Tüm oyuncular 80 maç barajını geçti.")
+        
+        if key_players_df.empty:
+            report_lines.append("Hata: Rookie filtresinden (80+ maç) sonra analiz edilecek oyuncu kalmadı.")
+            return report_lines, None, today_str, None, None 
+        # <--- GÜNCELLEME 1 (ROOKIE FİLTRESİ) BİTTİ ---
+
         
         key_players_df['MIN_PER_GAME'] = key_players_df.apply(
             lambda row: row['MIN'] / row['GP'] if row['GP'] > 0 else 0,
@@ -508,12 +537,10 @@ def get_players_for_hybrid_analysis(
         top_players = key_players_df.sort_values(by=['TEAM_ABBREVIATION', 'MIN_PER_GAME'], ascending=[True, False])
         top_players_grouped = top_players.groupby('TEAM_ABBREVIATION').head(TOP_N_PLAYERS_PER_TEAM).reset_index()
         
-        # Haritaları kullanarak oyuncu satırlarına GAME_ID ve MATCHUP ekle
         top_players_grouped['GAME_ID'] = top_players_grouped['TEAM_ID'].map(team_to_game_map)
         top_players_grouped['MATCHUP'] = top_players_grouped['GAME_ID'].map(game_id_to_matchup_str)
         top_players_grouped['OPPONENT_TEAM_ID'] = top_players_grouped['TEAM_ID'].map(team_to_opponent_map) # B2B için
         
-        # Fikstür dosyasındaki 'HOME_TEAM' ve 'AWAY_TEAM' isimlerini de ekleyelim
         game_id_to_teams = df_games_today.set_index('GAME_ID')[['HOME_TEAM', 'AWAY_TEAM']].to_dict('index')
         
         def get_team_names(row):
@@ -528,7 +555,7 @@ def get_players_for_hybrid_analysis(
             ascending=[True, True, False]
         )
         
-        report_lines.append(f"Toplam {len(top_players_final)} kilit ve aktif oyuncu bulundu.")
+        report_lines.append(f"Toplam {len(top_players_final)} kilit ve deneyimli oyuncu (80+ maç) bulundu.")
         
         return report_lines, top_players_final, today_str, current_season_players_df, csv_inactive_player_names
 
@@ -539,22 +566,20 @@ def get_players_for_hybrid_analysis(
 
 
 # ========================================================================
-# === HİBRİT ANALİZ - ADIM 2: BAREMLERİ ANALİZ ET ===
-# (Bu fonksiyonda değişiklik yok)
+# === GÜNCELLEME 2: 'run_full_analysis_logic' (Ana Sayfa Analizi) ===
 # ========================================================================
 def run_full_analysis_logic(
-    baremler, # Kullanıcıdan gelen (player_name, middle_barem) listesi
-    top_players_final, # Adım 1'den gelen Top 5 oyuncu listesi (DataFrame)
-    current_season_players_df, # Adım 1'den gelen TÜM aktif oyuncular (Delta için)
-    csv_inactive_player_names, # Adım 1'den gelen sakat isimleri (set)
+    baremler, 
+    top_players_final, 
+    current_season_players_df, 
+    csv_inactive_player_names, 
     df_oyuncu_mac,
-    df_takim_mac, # B2B kontrolü için GEÇMİŞ maçlar
+    df_takim_mac, 
     ANALYSIS_RANGE,
     MINIMUM_PATTERN_PROBABILITY,
     today_str
     ):
     
-    # --- Analiz Ayarları ---
     KEY_PLAYERS_PER_TEAM = 3 
     BASE_CONFIDENCE = 50.0
     VOLUME_WEIGHT_POSITIVE = 30.0  
@@ -563,18 +588,14 @@ def run_full_analysis_logic(
     B2B_WEIGHT = 15.0              
     USAGE_DELTA_WEIGHT = 25.0      
     
-    # Raporlama için
     report_lines = []
     analysis_results = []
     
-    # Dünün tarihini al (B2B kontrolü için)
     today_date_obj = datetime.strptime(today_str, '%Y-%m-%d').date()
     yesterday_date_obj = today_date_obj - timedelta(days=1)
             
-    # (Sürüm 4.0 - Çift Döngü)
     for (player_name, middle_barem) in baremler:
         
-        # Aralığı oluştur
         barems_to_analyze = [
             middle_barem - ANALYSIS_RANGE,
             middle_barem,
@@ -583,6 +604,10 @@ def run_full_analysis_logic(
         
         try:
             player_mac_data = df_oyuncu_mac[df_oyuncu_mac['PLAYER_NAME'] == player_name].sort_values(by='GAME_DATE')
+            # <--- GÜNCELLEME: Rapor için toplam maç sayısını al
+            total_match_count = len(player_mac_data)
+            # --- BİTTİ ---
+            
             player_sezon_row = top_players_final[top_players_final['PLAYER_NAME'] == player_name].iloc[0]
         except IndexError:
              report_lines.append(f"\n! {player_name} için veri bulunamadı (Indext Hatası). Atlanıyor...")
@@ -606,8 +631,13 @@ def run_full_analysis_logic(
         s_fga = player_sezon_row['FGA']
         s_fgm = player_sezon_row['FGM']
         s_avg_fg_pct = s_fgm / s_fga if s_fga > 0 else 0.0
+        
+        # <--- GÜNCELLEME: Rapor için Takım ve Süre bilgilerini al
+        team_abbr = player_sezon_row.get('TEAM_ABBREVIATION', '???')
+        avg_min_this_season = player_sezon_row.get('MIN_PER_GAME', 0.0) # Bu, get_players'da hesaplanmıştı
+        # --- BİTTİ ---
 
-        # B2B verisini BİR KEZ hesapla (df_takim_mac'tan, yani GEÇMİŞ veriden)
+        # B2B verisini BİR KEZ hesapla
         player_played_yesterday = not df_takim_mac[
             (df_takim_mac['TEAM_ID'] == team_id) & 
             (df_takim_mac['GAME_DATE'].dt.date == yesterday_date_obj)
@@ -624,7 +654,6 @@ def run_full_analysis_logic(
         kilit_oyuncu_isimleri = set(team_top_players['PLAYER_NAME'])
         kilit_oyuncu_isimleri.discard(player_name) 
         
-        # csv_inactive_player_names, Adım 1'den hazır olarak geliyor
         bugun_sakat_kilit_oyuncular_isimleri = kilit_oyuncu_isimleri.intersection(csv_inactive_player_names)
         
         baseline_sakat_kilit_oyuncular_isimleri = set()
@@ -642,14 +671,14 @@ def run_full_analysis_logic(
         
         if len(yeni_sakatlar_isimleri) > 0:
             delta_etkisi = 1
-            delta_oyuncu_ismi = list(yeni_sakatlar_isimleri)[0] # Zaten isim
+            delta_oyuncu_ismi = list(yeni_sakatlar_isimleri)[0] 
         elif len(donen_oyuncular_isimleri) > 0:
             delta_etkisi = -1
-            delta_oyuncu_ismi = list(donen_oyuncular_isimleri)[0] # Zaten isim
+            delta_oyuncu_ismi = list(donen_oyuncular_isimleri)[0] 
 
         # Şimdi 3 barem için iç döngü
         for threshold_pts in barems_to_analyze:
-            if threshold_pts <= 0: continue # Negatif baremi atla
+            if threshold_pts <= 0: continue 
             
             (pts_pattern, _, _, _, _, _, 
              pts_comment_h, pts_comment_b, pts_prob_h, pts_prob_b, 
@@ -732,6 +761,7 @@ def run_full_analysis_logic(
             full_pts_comment = (pts_prob_h + pts_prob_b).replace("\n", " ").replace("    >> ", "")
             sinerji_skoru = (pts_prob_break_pct / 100.0) * (final_confidence / 100.0)
 
+            # <--- GÜNCELLEME: Rapor için ekstra verileri sözlüğe ekle
             analysis_results.append({
                 'sinerji_skoru': sinerji_skoru,
                 'game_id': game_id, 
@@ -750,12 +780,14 @@ def run_full_analysis_logic(
                 'raw_s_avg_fg_pct': s_avg_fg_pct,
                 'raw_b2b_comment': comment_b2b,
                 'raw_delta_comment': comment_delta,
-                'delta_tag': 'delta_plus' if delta_etkisi == 1 else ('delta_minus' if delta_etkisi == -1 else 'kucuk_desen')
+                'delta_tag': 'delta_plus' if delta_etkisi == 1 else ('delta_minus' if delta_etkisi == -1 else 'kucuk_desen'),
+                'team_abbr': team_abbr,                 # <--- EKLENDİ
+                'total_match_count': total_match_count, # <--- EKLENDİ
+                'avg_min': avg_min_this_season          # <--- EKLENDİ
             })
+            # --- BİTTİ ---
             
     report_lines.append(f"Analiz tamamlandı. Toplam {len(analysis_results)} adet barem/aday bulundu.")
-    
-    # --- 5. Adım: Önerileri Sırala ---
     
     if not analysis_results:
          report_lines.append("Analiz edilecek sonuç bulunamadı.")
@@ -765,7 +797,7 @@ def run_full_analysis_logic(
     
     all_adaylar = sorted(
         analysis_results, 
-        key=lambda x: (x['sinerji_skoru'], x['pts_prob'], x['confidence']), # 1. Sinerji, 2. Desen, 3. Güven
+        key=lambda x: (x['sinerji_skoru'], x['pts_prob'], x['confidence']),
         reverse=True 
     )
     
@@ -791,11 +823,10 @@ def run_full_analysis_logic(
         if len(tie_group) > 1:
             report_lines.append(f"UYARI: En üst sırada {len(tie_group)} barem BİREBİR AYNI skora sahip.")
             report_lines.append("   -> Bu eşit grup rastgele karıştırılıyor (PRNG)...")
-            random.shuffle(tie_group) # BU GRUBU KARIŞTIR
+            random.shuffle(tie_group)
         
         all_adaylar = tie_group + other_adaylar
             
-    # --- 6. Adım: Sonuçları Sun ---
     
     top_2_diverse_picks = []
     seen_game_ids_for_top2 = set()
@@ -819,16 +850,19 @@ def run_full_analysis_logic(
     report_lines.append("EN GÜVENİLİR 2 ÖNERİ (Farklı Maçlardan)")
     report_lines.append("="*60)
 
+    # <--- GÜNCELLEME: Sonuç raporlamasını güncelle
     for i, aday in enumerate(top_2_diverse_picks, 1):
         report_lines.append(f"\nADAY #{i} - SİNERJİ SKORU: {aday['sinerji_skoru']:.3f}")
         report_lines.append(f"  (Desen: %{aday['pts_prob']:.1f} | Güven: %{aday['confidence']})")
-        report_lines.append(f"  OYUNCU: {aday['name']} ({aday['threshold']:.1f} PTS {aday['direction']})")
+        report_lines.append(f"  OYUNCU: {aday['name']} ({aday['team_abbr']}) - ({aday['threshold']:.1f} PTS {aday['direction']})")
+        report_lines.append(f"     (Veri: {aday['total_match_count']} Maç | Ort. Süre: {aday['avg_min']:.1f} dk)")
         report_lines.append("-" * 50)
         report_lines.append(f"  1. DESEN (PTS): {aday['pts_comment']}")
         report_lines.append(f"  2. HACİM (Sezon Ort.): {aday['comment_hacim']}")
         report_lines.append(f"  3. VERİMLİLİK (FG%): {aday['comment_verimlilik']}")
         report_lines.append(f"  4. YORGUNLUK (B2B): {aday['raw_b2b_comment']}")
         report_lines.append(f"  5. KADRO DELTASI: {aday['raw_delta_comment']}")
+    # --- BİTTİ ---
 
     report_lines.append("\n" + "="*60)
     report_lines.append("Analiz tamamlandı.")
@@ -904,7 +938,9 @@ def run_backtest_logic(log_data, df_mac_results, min_prob):
                 status = 'basarisiz'
                 result_str = f"BAŞARISIZ (Sonuç: {actual_pts:.0f} PTS)"
         
-        report_lines_top4.append( (f"#{i}: {aday['name']} ({barem:.1f} {direction}) [D: {pts_prob:.0f}% | G: {confidence}%] -> {result_str}", status) )
+        # <--- GÜNCELLEME: Backtest raporuna da takım adını ekleyelim (eğer logda varsa)
+        team_abbr_str = f"({aday.get('team_abbr', '???')})" # .get() kullanarak eski logların hata vermesini engelle
+        report_lines_top4.append( (f"#{i}: {aday['name']} {team_abbr_str} ({barem:.1f} {direction}) [D: {pts_prob:.0f}% | G: {confidence}%] -> {result_str}", status) )
 
     report_lines_other = []
     if not other_results:
@@ -946,7 +982,9 @@ def run_backtest_logic(log_data, df_mac_results, min_prob):
         
         filter_str = "(FİLTREYE TAKILDI)" if aday['pts_prob'] < min_prob else ""
         
-        report_lines_other.append( (f"#{i}: {aday['name']} ({barem:.1f} {direction}) [D: {pts_prob:.0f}% | G: {confidence}%] {filter_str} -> {result_str}", status) )
+        # <--- GÜNCELLEME: Backtest raporuna da takım adını ekleyelim (eğer logda varsa)
+        team_abbr_str = f"({aday.get('team_abbr', '???')})"
+        report_lines_other.append( (f"#{i}: {aday['name']} {team_abbr_str} ({barem:.1f} {direction}) [D: {pts_prob:.0f}% | G: {confidence}%] {filter_str} -> {result_str}", status) )
 
     report_summary = []
     
