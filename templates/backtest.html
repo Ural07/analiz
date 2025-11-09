@@ -7,10 +7,13 @@
             <div class="card-body">
                 <h5 class="card-title">Kontrol Paneli</h5>
                 
-                <form action="/run-backtest" method="POST">
+                <form method="POST">
                     <div class="mb-3">
                         <label for="log_date" class="form-label">Geçmiş Analiz Tarihleri:</label>
                         <select class="form-select" name="log_date" id="log_date" size="10" required>
+                            {% if not log_dates %}
+                                <option value="">Kayıtlı log bulunamadı</option>
+                            {% endif %}
                             {% for date in log_dates %}
                                 <option value="{{ date }}"
                                         {% if date == selected_date %}selected{% endif %}>
@@ -19,21 +22,39 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="d-grid">
-                        <button type="submit" class="btn btn-primary p-3">
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" 
+                                formaction="{{ url_for('handle_backtest') }}" 
+                                class="btn btn-primary p-3">
                             SEÇİLEN TARİHİ KONTROL ET
+                        </button>
+                        
+                        <button type="submit" 
+                                formaction="{{ url_for('handle_delete_log_date') }}" 
+                                class="btn btn-warning p-3"
+                                onclick="return confirm('Emin misiniz? Seçili olan tarihi loglardan kalıcı olarak silmek istediğinizden emin misiniz? Bu işlem geri alınamaz!')">
+                            SEÇİLEN TARİHİ SİL
                         </button>
                     </div>
                 </form>
                 
                 <hr>
                 
-                <form action="/run-total-backtest" method="GET">
-                    <div class="d-grid">
-                        <button type="submit" class="btn btn-danger p-3">
-                            TÜM LOGLARI KONTROL ET (TOTAL BAŞARI)
-                        </button>
-                    </div>
+                <form action="/run-total-backtest" method="GET" class="d-grid">
+                    <button type="submit" class="btn btn-info p-3">
+                        TÜM LOGLARI KONTROL ET (TOTAL BAŞARI)
+                    </button>
+                </form>
+
+                <hr>
+
+                <form action="{{ url_for('handle_clear_logs') }}" method="POST" class="d-grid">
+                    <button type="submit" 
+                            class="btn btn-danger" 
+                            onclick="return confirm('ÇOK DİKKAT!\nTüm backtest logları (analysis_log.json) kalıcı olarak silinecek. Bu işlem geri alınamaz!')">
+                        <i class="fas fa-trash-alt"></i> TÜM LOGLARI TEMİZLE
+                    </button>
                 </form>
                 
             </div>

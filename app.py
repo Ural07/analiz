@@ -1,6 +1,6 @@
 # Dosya Adı: app.py
 # GÖREV: S3'ten 'nba_analiz.db', 'games_today.json' VE 'nba-injury-report.csv'
-# dosyalarını indirir.
+# dosyalarını indirir. (Log silme fonksiyonları eklendi)
 
 from flask import Flask, render_template, request, redirect, url_for, session, abort, jsonify 
 import pandas as pd
@@ -47,12 +47,11 @@ RENDER_INJURY_PATH = "/tmp/nba-injury-report.csv" # <--- YENİ
 engine = None 
 
 # --- Analiz Ayarları ---
-ANALYSIS_RANGE = 4.0 
+ANALYSIS_RANGE = 3.0 
 MINIMUM_PATTERN_PROBABILITY = 75.0 
 TOP_N_PLAYERS_PER_TEAM = 5 
 CURRENT_SEASON_START_DATE = '2025-09-01'
 
-# --- Dosya Yolları ---
 # --- Dosya Yolları (Kalıcı Disk için Güncellendi) ---
 # Render'da oluşturduğumuz diskin yolu
 DATA_DIR = "/var/data/projem"
@@ -71,6 +70,7 @@ except Exception as e:
 CACHE_FILE = os.path.join(DATA_DIR, "barem_cache.json")
 LOG_FILE = os.path.join(DATA_DIR, "analysis_log.json")
 # --- GÜNCELLEME BİTTİ ---
+
 
 # --- Global Değişkenler ---
 DATA_CACHE = {"data_last_loaded": None}
@@ -422,10 +422,9 @@ def route_browse_data(file=None):
         elif file_key == 'fikstur' and not df_games_today.empty:
             file_name = "games_today.json (Fikstür)"
             target_df = df_games_today
-        elif file_key == 'sakatlik' and not df_injury_report.empty: # <--- YENİ
+        elif file_key == 'sakatlik' and not df_injury_report.empty: 
             file_name = "nba-injury-report.csv (Sakatlık)"
             target_df = df_injury_report
-        # --- BİTTİ ---
             
         if target_df is not None:
             data_shape = target_df.shape
@@ -462,9 +461,8 @@ def route_get_data(file_key):
             target_df = df_takim_mac
         elif file_key == 'fikstur' and not df_games_today.empty:
             target_df = df_games_today
-        elif file_key == 'sakatlik' and not df_injury_report.empty: # <--- YENİ
+        elif file_key == 'sakatlik' and not df_injury_report.empty:
             target_df = df_injury_report
-        # --- BİTTİ ---
         else:
             print("Veri kilidi serbest bırakıldı (API - Hata).")
             return jsonify({"error": "Geçersiz dosya anahtarı veya veri yüklenmemiş", "data": []}), 404
@@ -646,10 +644,12 @@ def handle_get_players():
             report_lines.append("Hafızadaki baremler (cache) kullanılacak.")
         
         if top_players_final is not None:
+            # --- GÜNCELLEME: Gruplama anahtarı 'MATCHUP' ---
             for game_id, group_df in top_players_final.groupby('GAME_ID', sort=False):
+                # İlk oyuncudan ev sahibi ve deplasman isimlerini al
                 home_team = group_df.iloc[0].get('HOME_TEAM', 'Ev Sahibi')
                 away_team = group_df.iloc[0].get('AWAY_TEAM', 'Deplasman')
-                matchup_name = f"{away_team} @ {home_team}" 
+                matchup_name = f"{away_team} @ {home_team}" # Standart format
                 
                 grouped_players[matchup_name] = group_df.to_dict('records')
         
@@ -823,13 +823,27 @@ def handle_total_backtest():
                                report_other=[],
                                report_summary=report_summary)
 
-
-# ======================================================
-# === UYGULAMAYI BAŞLAT ===
-# ======================================================
-# ======================================================
-# === SEÇİLİ LOG TARİHİNİ SİLME ROTASI (YENİ) ===
-# ======================================================
+# --- YENİ LOG SİLME FONKSİYONLARI BURAYA EKLENDİ ---
+@app.route('/clear-logs', methods=['POST'])
+@login_required
+def handle_clear_logs():
+    """
+    'Tüm Logları Temizle' butonuna basıldığında çalışır.
+    'analysis_log.json' dosyasının içini boşaltır.
+    """
+    global analysis_log
+    
+    print("Tüm analiz loglarını silme talebi alındı...")
+    
+    with DATA_LOCK:
+        try:
+            analysis_log = {}
+            save_log() 
+            print("Başarılı: 'analysis_log.json' dosyası temizlendi.")
+        except Exception as e:
+            print(f"HATA: Loglar temizlenirken hata oluştu: {e}")
+    
+    return redirect(url_for('route_backtest'))
 
 @app.route('/delete-log-date', methods=['POST'])
 @login_required
@@ -840,7 +854,6 @@ def handle_delete_log_date():
     """
     global analysis_log
     
-    # Formdan hangi tarihin silineceğini al
     date_to_delete = request.form.get('log_date')
     
     if not date_to_delete:
@@ -849,30 +862,24 @@ def handle_delete_log_date():
 
     print(f"'{date_to_delete}' tarihli analiz logunu silme talebi alındı...")
     
-    # Veri kilidini al (log dosyasına yazarken başka bir işlem olmasın)
     with DATA_LOCK:
         try:
-            # 1. Hafızadaki (global) log sözlüğünden (dictionary) o tarihi (key) sil
             if date_to_delete in analysis_log:
                 del analysis_log[date_to_delete]
-                
-                # 2. Değişikliği kalıcı diske (analysis_log.json) kaydet
                 save_log() 
                 print(f"Başarılı: '{date_to_delete}' tarihi loglardan silindi.")
             else:
                 print(f"UYARI: '{date_to_delete}' tarihi logda bulunamadı (zaten silinmiş olabilir).")
-                
         except Exception as e:
             print(f"HATA: Log '{date_to_delete}' tarihi silinirken hata oluştu: {e}")
-            # Hata olsa bile backtest sayfasına geri dön
     
-    # İşlem bittikten sonra Backtest sayfasına geri yönlendir
     return redirect(url_for('route_backtest'))
+# --- YENİ FONKSİYONLARIN EKLENMESİ BİTTİ ---
+
 
 # ======================================================
 # === UYGULAMAYI BAŞLAT ===
 # ======================================================
-
 
 try: 
     load_data_from_s3() 
