@@ -1,6 +1,6 @@
 # Dosya Adı: app.py
-# GÖREV: S3'ten 'nba_analiz.db', 'games_today.json' VE 'nba-injury-report.csv'
-# dosyalarını indirir. (Log silme fonksiyonları eklendi)
+# GÖREV: S3'ten 3 dosyayı indirir (DB, Fikstür, Sakatlık)
+# GÜNCELLEME: Login ekranı ortalandı ve çoklu kullanıcı desteği eklendi.
 
 from flask import Flask, render_template, request, redirect, url_for, session, abort, jsonify 
 import pandas as pd
@@ -30,12 +30,12 @@ DB_FILE_URL = os.getenv("DB_FILE_URL")
 
 # --- Fikstür ve Sakatlık URL'lerini otomatik oluştur ---
 GAMES_TODAY_URL = ""
-INJURY_FILE_URL = "" # <--- YENİ
+INJURY_FILE_URL = "" 
 if DB_FILE_URL:
     GAMES_TODAY_URL = DB_FILE_URL.replace("nba_analiz.db", "games_today.json")
-    INJURY_FILE_URL = DB_FILE_URL.replace("nba_analiz.db", "nba-injury-report.csv") # <--- YENİ
+    INJURY_FILE_URL = DB_FILE_URL.replace("nba_analiz.db", "nba-injury-report.csv") 
     print(f"Fikstür URL'si ayarlandı: {GAMES_TODAY_URL}")
-    print(f"Sakatlık URL'si ayarlandı: {INJURY_FILE_URL}") # <--- YENİ
+    print(f"Sakatlık URL'si ayarlandı: {INJURY_FILE_URL}") 
 else:
     print("KRİTİK HATA: .env dosyasında DB_FILE_URL (S3 dosya adresi) bulunamadı.")
 # --- BİTTİ ---
@@ -43,7 +43,7 @@ else:
 
 RENDER_DB_PATH = "/tmp/nba_analiz.db" 
 RENDER_GAMES_TODAY_PATH = "/tmp/games_today.json"
-RENDER_INJURY_PATH = "/tmp/nba-injury-report.csv" # <--- YENİ
+RENDER_INJURY_PATH = "/tmp/nba-injury-report.csv" 
 engine = None 
 
 # --- Analiz Ayarları ---
@@ -53,23 +53,16 @@ TOP_N_PLAYERS_PER_TEAM = 5
 CURRENT_SEASON_START_DATE = '2025-09-01'
 
 # --- Dosya Yolları (Kalıcı Disk için Güncellendi) ---
-# Render'da oluşturduğumuz diskin yolu
 DATA_DIR = "/var/data/projem"
-
-# Bu klasörün var olduğundan emin ol (Render'da ilk çalıştırmada)
 try:
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
         print(f"Başarılı: Kalıcı disk dizini '{DATA_DIR}' oluşturuldu.")
 except Exception as e:
     print(f"UYARI: Kalıcı disk dizini '{DATA_DIR}' oluşturulamadı: {e}")
-    # Hata olursa, en azından mevcut (geçici) dizine yazsın
     DATA_DIR = "." 
-
-# Dosya yollarını bu kalıcı dizine yönlendir
 CACHE_FILE = os.path.join(DATA_DIR, "barem_cache.json")
 LOG_FILE = os.path.join(DATA_DIR, "analysis_log.json")
-# --- GÜNCELLEME BİTTİ ---
 
 
 # --- Global Değişkenler ---
@@ -78,7 +71,7 @@ df_oyuncu_mac = None
 df_oyuncu_sezon = None
 df_takim_mac = None
 df_games_today = pd.DataFrame() 
-df_injury_report = pd.DataFrame() # <--- YENİ: Sakatlıklar için boş DataFrame
+df_injury_report = pd.DataFrame() 
 ALL_TEAMS_LIST = []
 ALL_PLAYERS_LIST = []
 nba_team_id_to_abbr = {}
@@ -91,6 +84,7 @@ DATA_LOCK = threading.Lock()
 
 # ======================================================
 # === VERİ YÜKLEME (S3'TEN İNDİRME) ===
+# (Bu fonksiyonda değişiklik yok)
 # ======================================================
 
 def load_data_from_s3():
@@ -100,7 +94,7 @@ def load_data_from_s3():
     """
     global df_oyuncu_mac, df_oyuncu_sezon, df_takim_mac, ALL_TEAMS_LIST, ALL_PLAYERS_LIST
     global nba_team_id_to_abbr, nba_abbr_to_id, engine, DATA_CACHE, df_games_today
-    global df_injury_report # <--- YENİ
+    global df_injury_report 
     
     print("Veri kilidi alınıyor (load_data_from_s3)...") 
     with DATA_LOCK: 
@@ -120,19 +114,14 @@ def load_data_from_s3():
             engine = create_engine(f'sqlite:///{RENDER_DB_PATH}')
             print("Geçici SQLite veritabanına bağlanıldı.")
 
-            # Tabloları Oku (Geçmiş Veriler)
             print("  Okunuyor: oyuncu_mac_performanslari")
             df_oyuncu_mac = pd.read_sql_query("SELECT * FROM oyuncu_mac_performanslari", con=engine)
-            
             print("  Okunuyor: oyuncu_sezon_istatistikleri")
             df_oyuncu_sezon = pd.read_sql_query("SELECT * FROM oyuncu_sezon_istatistikleri", con=engine)
-            
             print("  Okunuyor: maclar (Geçmiş Maçlar)")
             df_takim_mac = pd.read_sql_query("SELECT * FROM maclar", con=engine)
-            
             print("Veritabanından okuma tamamlandı. Veri tipleri dönüştürülüyor...")
             
-            # Tipleri dönüştür...
             cols_mac = ['PTS', 'FGA', 'FGM', 'FG_PCT', 'FTA', 'FTM', 'FT_PCT', 'REB', 'AST']
             for col in cols_mac:
                 if col in df_oyuncu_mac.columns:
@@ -147,23 +136,17 @@ def load_data_from_s3():
             df_oyuncu_mac = df_oyuncu_mac.dropna(subset=['GAME_DATE', 'PLAYER_ID', 'GAME_ID'])
             df_takim_mac = df_takim_mac.dropna(subset=['GAME_DATE']) 
 
-            # Listeleri Oluştur
             ALL_PLAYERS_LIST = sorted(df_oyuncu_mac['PLAYER_NAME'].unique())
             ALL_TEAMS_LIST = sorted(df_takim_mac['TEAM_NAME'].unique())
-            
             print(f"Başarılı: {len(ALL_PLAYERS_LIST)} oyuncu, {len(ALL_TEAMS_LIST)} takım belleğe yüklendi.")
             
             # === BÖLÜM 2: Fikstürü İndir (games_today.json) ===
             print(f"S3'ten fikstür indiriliyor: {GAMES_TODAY_URL}")
             urllib.request.urlretrieve(GAMES_TODAY_URL, RENDER_GAMES_TODAY_PATH)
             print(f"Fikstür başarıyla '{RENDER_GAMES_TODAY_PATH}' konumuna indirildi.")
-            
             df_games_today = pd.read_json(RENDER_GAMES_TODAY_PATH)
-            
-            if df_games_today.empty:
-                print("UYARI: Fikstür dosyası bulundu ancak içi boş.")
-            else:
-                print(f"Fikstür başarıyla belleğe yüklendi ({len(df_games_today)} maç).")
+            if df_games_today.empty: print("UYARI: Fikstür dosyası bulundu ancak içi boş.")
+            else: print(f"Fikstür başarıyla belleğe yüklendi ({len(df_games_today)} maç).")
 
             # === BÖLÜM 3: Sakatlık Raporunu İndir (nba-injury-report.csv) ===
             try:
@@ -171,15 +154,10 @@ def load_data_from_s3():
                 urllib.request.urlretrieve(INJURY_FILE_URL, RENDER_INJURY_PATH)
                 df_injury_report = pd.read_csv(RENDER_INJURY_PATH)
                 print(f"Sakatlık raporu başarıyla belleğe yüklendi ({len(df_injury_report)} oyuncu).")
-            except FileNotFoundError:
-                print("UYARI: S3'te 'nba-injury-report.csv' dosyası bulunamadı.")
-                print("   -> (Lokalden yüklemeyi unutmuş olabilirsiniz, analiz sakatlık filtresi olmadan devam edecek)")
-                df_injury_report = pd.DataFrame(columns=['Player']) # Boş bir DF oluştur
             except Exception as e_inj:
                 print(f"UYARI: Sakatlık raporu indirilirken/okunurken hata: {e_inj}")
                 df_injury_report = pd.DataFrame(columns=['Player']) # Boş bir DF oluştur
-            # === BÖLÜM 3 BİTTİ ===
-
+            
             DATA_CACHE["data_last_loaded"] = time.ctime()
             
         except Exception as e:
@@ -218,6 +196,7 @@ def load_data_from_s3():
 
 # ======================================================
 # === HAFIZA (CACHE & LOG) YÖNETİMİ ===
+# (Bu bölümde değişiklik yok)
 # ======================================================
 
 def load_cache():
@@ -295,10 +274,21 @@ app = Flask(__name__)
 app.secret_key = 'sizin-cok-gizli-anahtariniz-12345' 
 
 # ======================================================
-# === KULLANICI GİRİŞ (LOGIN) SİSTEMİ ===
+# === KULLANICI GİRİŞ (LOGIN) SİSTEMİ (GÜNCELLENDİ) ===
 # ======================================================
-ADMIN_USERNAME = os.environ.get('ADMIN_USER', 'admin')
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASS', '12345')
+# --- GÜNCELLEME 1: Çoklu Kullanıcı Sözlüğü ---
+# ESKİ KODLAR SİLİNDİ:
+# ADMIN_USERNAME = os.environ.get('ADMIN_USER', 'admin')
+# ADMIN_PASSWORD = os.environ.get('ADMIN_PASS', '12345')
+
+# YENİ KOD:
+# Kullanıcıları buraya ekleyebilirsiniz: "kullanici_adi": "sifre"
+# BU İKİ SATIRI KENDİNİZE GÖRE GÜNCELLEYİN:
+ALLOWED_USERS = {
+    "onurella": "bokagizli06",   # <--- 1. KULLANICIYI BURADAN DEĞİŞTİRİN
+    "ural": "123123123123"  # <--- 2. KULLANICIYI BURADAN DEĞİŞTİRİN
+}
+# --- GÜNCELLEME BİTTİ ---
 
 def login_required(f):
     @wraps(f)
@@ -322,9 +312,14 @@ def route_login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        
+        # --- GÜNCELLEME 2: Kullanıcı Kontrolü ---
+        # ESKİ KOD SİLİNDİ:
+        # if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        # YENİ KOD:
+        if username in ALLOWED_USERS and ALLOWED_USERS[username] == password:
             session['logged_in'] = True
-            print("Giriş başarılı!")
+            print(f"Giriş başarılı! (Kullanıcı: {username})") # Hangi kullanıcının girdiğini logla
             next_url = request.form.get('next')
             if next_url:
                 return redirect(next_url)
@@ -333,16 +328,87 @@ def route_login():
             error = 'Geçersiz Kullanıcı Adı veya Şifre'
             print("Giriş denemesi başarısız.")
     
+    # --- GÜNCELLEME 3: HTML Formu Ortalandı ve Şekillendirildi ---
     return f'''
-        <form method="post">
-            <h2>Giriş Yap</h2>
-            Kullanıcı Adı: <input type="text" name="username"><br>
-            Şifre: <input type="password" name="password"><br>
-            <input type="hidden" name="next" value="{request.args.get('next', '')}">
-            <input type="submit" value="Giriş">
-            {f'<p style="color:red;">{error}</p>' if error else ''}
-        </form>
+        <!DOCTYPE html>
+        <html lang="tr">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Giriş Yap</title>
+            <style>
+                body {{
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    font-family: Arial, sans-serif;
+                    background-color: #f4f4f4;
+                    margin: 0;
+                }}
+                form {{
+                    background: #fff;
+                    border: 1px solid #ccc;
+                    padding: 30px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                    width: 300px;
+                }}
+                h2 {{
+                    text-align: center;
+                    margin-top: 0;
+                    color: #333;
+                }}
+                label {{
+                    display: block;
+                    margin-bottom: 5px;
+                    font-weight: bold;
+                    color: #555;
+                }}
+                input[type="text"], input[type="password"] {{
+                    width: 100%;
+                    padding: 10px;
+                    margin-bottom: 15px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    box-sizing: border-box; /* Genişliğin padding'i içermesi için */
+                }}
+                input[type="submit"] {{
+                    width: 100%;
+                    padding: 12px;
+                    background-color: #007bff;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 16px;
+                }}
+                input[type="submit"]:hover {{
+                    background-color: #0056b3;
+                }}
+                .error {{
+                    color: red; 
+                    text-align: center; 
+                    margin-top: 15px;
+                    font-size: 0.9em;
+                }}
+            </style>
+        </head>
+        <body>
+            <form method="post">
+                <h2>Giriş Yap</h2>
+                <label for="username">Kullanıcı Adı:</label>
+                <input type="text" id="username" name="username">
+                <label for="password">Şifre:</label>
+                <input type="password" id="password" name="password">
+                <input type="hidden" name="next" value="{request.args.get('next', '')}">
+                <input type="submit" value="Giriş">
+                {f'<p class="error">{error}</p>' if error else ''}
+            </form>
+        </body>
+        </html>
     '''
+    # --- GÜNCELLEME BİTTİ ---
 
 @app.route('/logout')
 def route_logout():
@@ -351,6 +417,7 @@ def route_logout():
 
 # ======================================================
 # === WEB SAYFASI ROTALARI (SAYFA ADRESLERİ) ===
+# (Bu bölümde değişiklik yok)
 # ======================================================
 
 @app.route('/')
@@ -518,6 +585,7 @@ def route_all_results():
 
 # ======================================================
 # === ANALİZ TETİKLEYİCİLERİ ===
+# (Bu bölümde değişiklik yok)
 # ======================================================
 
 @app.route('/takim-analizi', methods=['POST'])
@@ -533,7 +601,7 @@ def handle_team_analysis():
             report_string = analysis_engine.analyze_team_logic(
                 team_name=team_name,
                 threshold=threshold,
-                df_takim_mac=df_takim_mac # Bu, geçmiş veritabanını kullanır (doğru)
+                df_takim_mac=df_takim_mac 
             )
             return render_template(
                 "takim.html", 
@@ -584,15 +652,12 @@ def handle_player_analysis():
 
 # ======================================================
 # === HİBRİT ANALİZ TETİKLEYİCİLERİ ===
+# (Bu bölümde değişiklik yok)
 # ======================================================
 
 @app.route('/get-players')
 @login_required
 def handle_get_players():
-    """
-    'OYUNCU LİSTESİ AL' butonu tıklandığında çalışır.
-    Fikstürü (df_games_today) VE Sakatlıkları (df_injury_report) 'analysis_engine'e gönderir.
-    """
     global cached_barems, cached_player_list_key, nba_team_id_to_abbr, nba_abbr_to_id
     
     today_str = datetime.now().strftime('%Y-%m-%d')
@@ -603,20 +668,18 @@ def handle_get_players():
     with DATA_LOCK: 
         print("Oyuncu listesi alma talebi alındı...")
         
-        # --- DEĞİŞİKLİK BURADA: 'df_injury_report' (Sakatlık) parametresi eklendi ---
         try:
             (report_lines, 
              top_players_final, 
              today_str, 
              current_season_players_df, 
              csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
-                 df_games_today=df_games_today, # <--- Fikstür
+                 df_games_today=df_games_today, 
                  df_oyuncu_mac=df_oyuncu_mac,
                  df_oyuncu_sezon=df_oyuncu_sezon,
                  nba_team_id_to_abbr=nba_team_id_to_abbr,
-                 df_injury_report=df_injury_report # <--- YENİ
+                 df_injury_report=df_injury_report 
              )
-        # --- DEĞİŞİKLİK BİTTİ ---
         
         except Exception as e:
             error_report = f"KRİTİK HATA (analysis_engine): {e}\n\n{traceback.format_exc()}"
@@ -644,12 +707,10 @@ def handle_get_players():
             report_lines.append("Hafızadaki baremler (cache) kullanılacak.")
         
         if top_players_final is not None:
-            # --- GÜNCELLEME: Gruplama anahtarı 'MATCHUP' ---
             for game_id, group_df in top_players_final.groupby('GAME_ID', sort=False):
-                # İlk oyuncudan ev sahibi ve deplasman isimlerini al
                 home_team = group_df.iloc[0].get('HOME_TEAM', 'Ev Sahibi')
                 away_team = group_df.iloc[0].get('AWAY_TEAM', 'Deplasman')
-                matchup_name = f"{away_team} @ {home_team}" # Standart format
+                matchup_name = f"{away_team} @ {home_team}" 
                 
                 grouped_players[matchup_name] = group_df.to_dict('records')
         
@@ -683,20 +744,17 @@ def handle_run_analysis():
         cached_barems.update(barem_dict)
         save_cache()
 
-        # Adım 1'i tekrar çalıştır (Fikstür ve Sakatlıkları tekrar gönder)
-        # --- DEĞİŞİKLİK BURADA: 'df_injury_report' (Sakatlık) parametresi eklendi ---
         (report_lines, 
             top_players_final, 
             _, 
             current_season_players_df, 
             csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
-                 df_games_today=df_games_today, # <--- Fikstür
+                 df_games_today=df_games_today, 
                  df_oyuncu_mac=df_oyuncu_mac, 
                  df_oyuncu_sezon=df_oyuncu_sezon, 
                  nba_team_id_to_abbr=nba_team_id_to_abbr,
-                 df_injury_report=df_injury_report # <--- YENİ
+                 df_injury_report=df_injury_report 
             )
-        # --- DEĞİŞİKLİK BİTTİ ---
          
         if top_players_final is None:
             return render_template("index.html", 
@@ -708,7 +766,7 @@ def handle_run_analysis():
                 baremler=baremler,
                 top_players_final=top_players_final,
                 current_season_players_df=current_season_players_df,
-                csv_inactive_player_names=csv_inactive_player_names, # <--- Bu değişken Adım 1'den geliyor
+                csv_inactive_player_names=csv_inactive_player_names, 
                 df_oyuncu_mac=df_oyuncu_mac,
                 df_takim_mac=df_takim_mac, 
                 ANALYSIS_RANGE=ANALYSIS_RANGE,
@@ -740,6 +798,7 @@ def handle_run_analysis():
 
 # ======================================================
 # === BACKTEST TETİKLEYİCİLERİ ===
+# (Bu bölümde değişiklik yok)
 # ======================================================
 
 @app.route('/run-backtest', methods=['POST'])
@@ -823,14 +882,10 @@ def handle_total_backtest():
                                report_other=[],
                                report_summary=report_summary)
 
-# --- YENİ LOG SİLME FONKSİYONLARI BURAYA EKLENDİ ---
+# --- LOG SİLME FONKSİYONLARI (Değişiklik yok) ---
 @app.route('/clear-logs', methods=['POST'])
 @login_required
 def handle_clear_logs():
-    """
-    'Tüm Logları Temizle' butonuna basıldığında çalışır.
-    'analysis_log.json' dosyasının içini boşaltır.
-    """
     global analysis_log
     
     print("Tüm analiz loglarını silme talebi alındı...")
@@ -848,10 +903,6 @@ def handle_clear_logs():
 @app.route('/delete-log-date', methods=['POST'])
 @login_required
 def handle_delete_log_date():
-    """
-    Kullanıcı 'Seçilen Tarihi Sil' butonuna bastığında çalışır.
-    Formdan 'log_date' anahtarını alır ve analysis_log'dan siler.
-    """
     global analysis_log
     
     date_to_delete = request.form.get('log_date')
@@ -874,11 +925,11 @@ def handle_delete_log_date():
             print(f"HATA: Log '{date_to_delete}' tarihi silinirken hata oluştu: {e}")
     
     return redirect(url_for('route_backtest'))
-# --- YENİ FONKSİYONLARIN EKLENMESİ BİTTİ ---
 
 
 # ======================================================
 # === UYGULAMAYI BAŞLAT ===
+# (Bu bölümde değişiklik yok)
 # ======================================================
 
 try: 
