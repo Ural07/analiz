@@ -1,5 +1,6 @@
 # Dosya Adı: app.py
-# GÖREV: S3'ten 'nba_analiz.db' VE 'games_today.json' dosyalarını indirir.
+# GÖREV: S3'ten 'nba_analiz.db', 'games_today.json' VE 'nba-injury-report.csv'
+# dosyalarını indirir.
 
 from flask import Flask, render_template, request, redirect, url_for, session, abort, jsonify 
 import pandas as pd
@@ -27,19 +28,22 @@ print(f"Uygulama Ana Dizini (BASE_DIR): {BASE_DIR}")
 load_dotenv()
 DB_FILE_URL = os.getenv("DB_FILE_URL")
 
-# --- YENİ: Fikstür URL'sini de almamız lazım ---
+# --- Fikstür ve Sakatlık URL'lerini otomatik oluştur ---
 GAMES_TODAY_URL = ""
+INJURY_FILE_URL = "" # <--- YENİ
 if DB_FILE_URL:
-    # 'nba_analiz.db' kısmını 'games_today.json' ile değiştir
     GAMES_TODAY_URL = DB_FILE_URL.replace("nba_analiz.db", "games_today.json")
+    INJURY_FILE_URL = DB_FILE_URL.replace("nba_analiz.db", "nba-injury-report.csv") # <--- YENİ
     print(f"Fikstür URL'si ayarlandı: {GAMES_TODAY_URL}")
+    print(f"Sakatlık URL'si ayarlandı: {INJURY_FILE_URL}") # <--- YENİ
 else:
     print("KRİTİK HATA: .env dosyasında DB_FILE_URL (S3 dosya adresi) bulunamadı.")
 # --- BİTTİ ---
 
 
 RENDER_DB_PATH = "/tmp/nba_analiz.db" 
-RENDER_GAMES_TODAY_PATH = "/tmp/games_today.json" # Fikstürün indirileceği yer
+RENDER_GAMES_TODAY_PATH = "/tmp/games_today.json"
+RENDER_INJURY_PATH = "/tmp/nba-injury-report.csv" # <--- YENİ
 engine = None 
 
 # --- Analiz Ayarları ---
@@ -57,7 +61,8 @@ DATA_CACHE = {"data_last_loaded": None}
 df_oyuncu_mac = None
 df_oyuncu_sezon = None
 df_takim_mac = None
-df_games_today = pd.DataFrame() # YENİ: Fikstür için boş DataFrame
+df_games_today = pd.DataFrame() 
+df_injury_report = pd.DataFrame() # <--- YENİ: Sakatlıklar için boş DataFrame
 ALL_TEAMS_LIST = []
 ALL_PLAYERS_LIST = []
 nba_team_id_to_abbr = {}
@@ -74,19 +79,20 @@ DATA_LOCK = threading.Lock()
 
 def load_data_from_s3():
     """
-    S3'ten 'nba_analiz.db' VE 'games_today.json' dosyalarını indirir
-    ve global DataFrame'leri doldurur.
+    S3'ten 'nba_analiz.db', 'games_today.json' VE 'nba-injury-report.csv'
+    dosyalarını indirir ve global DataFrame'leri doldurur.
     """
     global df_oyuncu_mac, df_oyuncu_sezon, df_takim_mac, ALL_TEAMS_LIST, ALL_PLAYERS_LIST
     global nba_team_id_to_abbr, nba_abbr_to_id, engine, DATA_CACHE, df_games_today
+    global df_injury_report # <--- YENİ
     
     print("Veri kilidi alınıyor (load_data_from_s3)...") 
     with DATA_LOCK: 
         print("Veri yükleme fonksiyonu (load_data_from_s3) başladı...")
         start_time = time.time()
         
-        if not DB_FILE_URL or not GAMES_TODAY_URL:
-            print("HATA: DB_FILE_URL veya GAMES_TODAY_URL ayarlanmamış, veri çekilemiyor.")
+        if not DB_FILE_URL or not GAMES_TODAY_URL or not INJURY_FILE_URL:
+            print("HATA: DB_FILE_URL, GAMES_TODAY_URL veya INJURY_FILE_URL ayarlanmamış, veri çekilemiyor.")
             return False
             
         try:
@@ -136,14 +142,28 @@ def load_data_from_s3():
             urllib.request.urlretrieve(GAMES_TODAY_URL, RENDER_GAMES_TODAY_PATH)
             print(f"Fikstür başarıyla '{RENDER_GAMES_TODAY_PATH}' konumuna indirildi.")
             
-            # JSON dosyasını doğrudan pandas ile oku (daha basit)
             df_games_today = pd.read_json(RENDER_GAMES_TODAY_PATH)
             
             if df_games_today.empty:
                 print("UYARI: Fikstür dosyası bulundu ancak içi boş.")
             else:
                 print(f"Fikstür başarıyla belleğe yüklendi ({len(df_games_today)} maç).")
-            
+
+            # === BÖLÜM 3: Sakatlık Raporunu İndir (nba-injury-report.csv) ===
+            try:
+                print(f"S3'ten sakatlık raporu indiriliyor: {INJURY_FILE_URL}")
+                urllib.request.urlretrieve(INJURY_FILE_URL, RENDER_INJURY_PATH)
+                df_injury_report = pd.read_csv(RENDER_INJURY_PATH)
+                print(f"Sakatlık raporu başarıyla belleğe yüklendi ({len(df_injury_report)} oyuncu).")
+            except FileNotFoundError:
+                print("UYARI: S3'te 'nba-injury-report.csv' dosyası bulunamadı.")
+                print("   -> (Lokalden yüklemeyi unutmuş olabilirsiniz, analiz sakatlık filtresi olmadan devam edecek)")
+                df_injury_report = pd.DataFrame(columns=['Player']) # Boş bir DF oluştur
+            except Exception as e_inj:
+                print(f"UYARI: Sakatlık raporu indirilirken/okunurken hata: {e_inj}")
+                df_injury_report = pd.DataFrame(columns=['Player']) # Boş bir DF oluştur
+            # === BÖLÜM 3 BİTTİ ===
+
             DATA_CACHE["data_last_loaded"] = time.ctime()
             
         except Exception as e:
@@ -383,10 +403,12 @@ def route_browse_data(file=None):
         elif file_key == 'takim_mac' and df_takim_mac is not None:
             file_name = "maclar.csv (Geçmiş)"
             target_df = df_takim_mac
-        # --- YENİ: Fikstür dosyasını da görüntüleyebilme ---
         elif file_key == 'fikstur' and not df_games_today.empty:
             file_name = "games_today.json (Fikstür)"
             target_df = df_games_today
+        elif file_key == 'sakatlik' and not df_injury_report.empty: # <--- YENİ
+            file_name = "nba-injury-report.csv (Sakatlık)"
+            target_df = df_injury_report
         # --- BİTTİ ---
             
         if target_df is not None:
@@ -422,9 +444,10 @@ def route_get_data(file_key):
             target_df = df_oyuncu_sezon
         elif file_key == 'takim_mac' and df_takim_mac is not None:
             target_df = df_takim_mac
-        # --- YENİ: Fikstür dosyasını da API ile gönderebilme ---
         elif file_key == 'fikstur' and not df_games_today.empty:
             target_df = df_games_today
+        elif file_key == 'sakatlik' and not df_injury_report.empty: # <--- YENİ
+            target_df = df_injury_report
         # --- BİTTİ ---
         else:
             print("Veri kilidi serbest bırakıldı (API - Hata).")
@@ -433,7 +456,6 @@ def route_get_data(file_key):
             temp_df = target_df.copy()
             if 'GAME_DATE' in temp_df.columns:
                 temp_df['GAME_DATE'] = temp_df['GAME_DATE'].dt.date.astype(str).replace('NaT', None)
-            # Fikstürdeki GAME_DATE_EST için de aynı
             if 'GAME_DATE_EST' in temp_df.columns:
                 temp_df['GAME_DATE_EST'] = pd.to_datetime(temp_df['GAME_DATE_EST']).dt.date.astype(str).replace('NaT', None)
                 
@@ -555,7 +577,7 @@ def handle_player_analysis():
 def handle_get_players():
     """
     'OYUNCU LİSTESİ AL' butonu tıklandığında çalışır.
-    Fikstürü (df_games_today) 'analysis_engine'e gönderir.
+    Fikstürü (df_games_today) VE Sakatlıkları (df_injury_report) 'analysis_engine'e gönderir.
     """
     global cached_barems, cached_player_list_key, nba_team_id_to_abbr, nba_abbr_to_id
     
@@ -567,17 +589,18 @@ def handle_get_players():
     with DATA_LOCK: 
         print("Oyuncu listesi alma talebi alındı...")
         
-        # --- DEĞİŞİKLİK BURADA: 'df_games_today' (Fikstür) parametresi eklendi ---
+        # --- DEĞİŞİKLİK BURADA: 'df_injury_report' (Sakatlık) parametresi eklendi ---
         try:
             (report_lines, 
              top_players_final, 
-             today_str, # Değişken burada güncellenecek
+             today_str, 
              current_season_players_df, 
              csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
-                 df_games_today=df_games_today, # <--- YENİ: Fikstür verisini buradan al
+                 df_games_today=df_games_today, # <--- Fikstür
                  df_oyuncu_mac=df_oyuncu_mac,
                  df_oyuncu_sezon=df_oyuncu_sezon,
-                 nba_team_id_to_abbr=nba_team_id_to_abbr # Bu artık kullanılmıyor olabilir ama kalsın
+                 nba_team_id_to_abbr=nba_team_id_to_abbr,
+                 df_injury_report=df_injury_report # <--- YENİ
              )
         # --- DEĞİŞİKLİK BİTTİ ---
         
@@ -589,7 +612,6 @@ def handle_get_players():
                                    top_2_picks=[], 
                                    all_results_ready=False)
 
-        # (Kalan kısım aynı)
         if top_players_final is None:
             sonuclar = "\n".join(report_lines)
             return render_template("index.html", 
@@ -608,13 +630,10 @@ def handle_get_players():
             report_lines.append("Hafızadaki baremler (cache) kullanılacak.")
         
         if top_players_final is not None:
-            # --- GÜNCELLEME: Gruplama anahtarı 'MATCHUP' ---
-            # (games_today.json 'MATCHUP' içermiyor, biz 'HOME_TEAM' ve 'AWAY_TEAM'i birleştireceğiz)
             for game_id, group_df in top_players_final.groupby('GAME_ID', sort=False):
-                # İlk oyuncudan ev sahibi ve deplasman isimlerini al
                 home_team = group_df.iloc[0].get('HOME_TEAM', 'Ev Sahibi')
                 away_team = group_df.iloc[0].get('AWAY_TEAM', 'Deplasman')
-                matchup_name = f"{away_team} @ {home_team}" # Standart format
+                matchup_name = f"{away_team} @ {home_team}" 
                 
                 grouped_players[matchup_name] = group_df.to_dict('records')
         
@@ -648,17 +667,18 @@ def handle_run_analysis():
         cached_barems.update(barem_dict)
         save_cache()
 
-        # Adım 1'i tekrar çalıştır (Fikstürü tekrar gönder)
-        # --- DEĞİŞİKLİK BURADA: 'df_games_today' (Fikstür) parametresi eklendi ---
+        # Adım 1'i tekrar çalıştır (Fikstür ve Sakatlıkları tekrar gönder)
+        # --- DEĞİŞİKLİK BURADA: 'df_injury_report' (Sakatlık) parametresi eklendi ---
         (report_lines, 
             top_players_final, 
             _, 
             current_season_players_df, 
             csv_inactive_player_names) = analysis_engine.get_players_for_hybrid_analysis(
-                 df_games_today=df_games_today, # <--- YENİ
+                 df_games_today=df_games_today, # <--- Fikstür
                  df_oyuncu_mac=df_oyuncu_mac, 
                  df_oyuncu_sezon=df_oyuncu_sezon, 
-                 nba_team_id_to_abbr=nba_team_id_to_abbr
+                 nba_team_id_to_abbr=nba_team_id_to_abbr,
+                 df_injury_report=df_injury_report # <--- YENİ
             )
         # --- DEĞİŞİKLİK BİTTİ ---
          
@@ -672,9 +692,9 @@ def handle_run_analysis():
                 baremler=baremler,
                 top_players_final=top_players_final,
                 current_season_players_df=current_season_players_df,
-                csv_inactive_player_names=csv_inactive_player_names,
+                csv_inactive_player_names=csv_inactive_player_names, # <--- Bu değişken Adım 1'den geliyor
                 df_oyuncu_mac=df_oyuncu_mac,
-                df_takim_mac=df_takim_mac, # Bu, B2B analizi için (geçmiş maçlar) hala gerekli
+                df_takim_mac=df_takim_mac, 
                 ANALYSIS_RANGE=ANALYSIS_RANGE,
                 MINIMUM_PATTERN_PROBABILITY=MINIMUM_PATTERN_PROBABILITY,
                 today_str=today_str 
