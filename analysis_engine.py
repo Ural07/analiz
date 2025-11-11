@@ -370,6 +370,10 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 # === GÜNCELLEME 1: 'get_players_for_hybrid_analysis' (Rookie Filtresi) ===
 # ========================================================================
 
+# ========================================================================
+# === GÜNCELLEME 1: 'get_players_for_hybrid_analysis' (Rookie Filtresi KALDIRILDI) ===
+# ========================================================================
+
 def get_players_for_hybrid_analysis(
     df_games_today,        
     df_oyuncu_mac,
@@ -378,9 +382,9 @@ def get_players_for_hybrid_analysis(
     df_injury_report       
     ):
     """
-    GÜNCELLEME: Fikstür 'df_games_today' (json) üzerinden okunuyor.
-    Sakatlıklar 'df_injury_report' (csv) üzerinden okunuyor.
-    YENİ: 80 maçtan az verisi olan oyuncular (rookie) filtreleniyor.
+    GÜNCELLEME: b60.py (v5.2) mantığıyla tam uyumlu hale getirildi.
+    - 'Rookie Filtresi' (50 maç filtresi) kaldırıldı.
+    - Artık sadece 'GP >= 3' filtresi (b60.py gibi) kullanılıyor.
     """
     
     report_lines = [] 
@@ -502,31 +506,11 @@ def get_players_for_hybrid_analysis(
             report_lines.append("Hata: Fikstürdeki takımlar (games_today.json), 'oyuncu_sezon_istatistikleri' (nba_analiz.db) dosyanızdaki hiçbir oyuncuyla eşleşmedi.")
             return report_lines, None, today_str, None, None 
 
-        # <--- GÜNCELLEME 1 (ROOKIE FİLTRESİ) BURADA BAŞLIYOR ---
-        if df_oyuncu_mac.empty:
-            report_lines.append("UYARI: 'oyuncu_mac_performanslari' (nba_analiz.db) tablosu boş.")
-            report_lines.append("   -> Rookie (80+ maç) filtresi uygulanamayacak.")
-        else:
-            # 1. Tüm oyuncuların toplam maç sayısını hesapla
-            match_counts = df_oyuncu_mac['PLAYER_ID'].value_counts()
-            
-            # 2. Bu maç sayılarını 'key_players_df' listesindeki oyuncularla eşleştir
-            key_players_df['total_matches'] = key_players_df['PLAYER_ID'].map(match_counts).fillna(0).astype(int)
-            
-            # 3. Filtreyi uygula
-            original_count = len(key_players_df)
-            key_players_df = key_players_df[key_players_df['total_matches'] >=50].copy()
-            filtered_count = len(key_players_df)
-            
-            if original_count > filtered_count:
-                report_lines.append(f"ROOKIE FİLTRESİ: {original_count - filtered_count} oyuncu, 50 maçtan az veriye sahip olduğu için listeden çıkarıldı.")
-            else:
-                report_lines.append("ROOKIE FİLTRESİ: Tüm oyuncular 50 maç barajını geçti.")
-        
-        if key_players_df.empty:
-            report_lines.append("Hata: Rookie filtresinden (50+ maç) sonra analiz edilecek oyuncu kalmadı.")
-            return report_lines, None, today_str, None, None 
-        # <--- GÜNCELLEME 1 (ROOKIE FİLTRESİ) BİTTİ ---
+        # <--- GÜNCELLEME 1 (ROOKIE FİLTRESİ) b60.py ile eşitlenmek için BURADAN KALDIRILDI ---
+        # 
+        # (Orijinal kodunuzdaki 50 maç filtresi bloğu (lines 336-352) buradan silindi.)
+        # 
+        # <--- GÜNCELLEME 1 BİTTİ ---
 
         
         key_players_df['MIN_PER_GAME'] = key_players_df.apply(
@@ -555,7 +539,7 @@ def get_players_for_hybrid_analysis(
             ascending=[True, True, False]
         )
         
-        report_lines.append(f"Toplam {len(top_players_final)} kilit ve deneyimli oyuncu (80+ maç) bulundu.")
+        report_lines.append(f"Toplam {len(top_players_final)} kilit ve aktif oyuncu (GP >= 3) bulundu.")
         
         return report_lines, top_players_final, today_str, current_season_players_df, csv_inactive_player_names
 
@@ -563,7 +547,6 @@ def get_players_for_hybrid_analysis(
         report_lines.append(f"KRİTİK HATA: {e}")
         report_lines.append(f"Hata Detayı: {traceback.format_exc()}")
         return report_lines, None, None, None, None
-
 
 # ========================================================================
 # === GÜNCELLEME 2: 'run_full_analysis_logic' (Ana Sayfa Analizi) ===
