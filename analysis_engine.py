@@ -374,6 +374,10 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 # === GÜNCELLEME 1: 'get_players_for_hybrid_analysis' (Rookie Filtresi KALDIRILDI) ===
 # ========================================================================
 
+# ========================================================================
+# === GÜNCELLEME 3: 'get_players_for_hybrid_analysis' (Rookie Filtresi GERİ EKLENDİ) ===
+# ========================================================================
+
 def get_players_for_hybrid_analysis(
     df_games_today,        
     df_oyuncu_mac,
@@ -382,9 +386,9 @@ def get_players_for_hybrid_analysis(
     df_injury_report       
     ):
     """
-    GÜNCELLEME: b60.py (v5.2) mantığıyla tam uyumlu hale getirildi.
-    - 'Rookie Filtresi' (50 maç filtresi) kaldırıldı.
-    - Artık sadece 'GP >= 3' filtresi (b60.py gibi) kullanılıyor.
+    GÜNCELLEME (Kullanıcı İsteği):
+    - 50 maçlık 'Rookie Filtresi' (kariyer toplam maçı) geri eklendi.
+    - Sadece 'GP >= 3' (sezon maçı) ve 'total_matches >= 50' (kariyer maçı) olanlar listelenecek.
     """
     
     report_lines = [] 
@@ -506,11 +510,40 @@ def get_players_for_hybrid_analysis(
             report_lines.append("Hata: Fikstürdeki takımlar (games_today.json), 'oyuncu_sezon_istatistikleri' (nba_analiz.db) dosyanızdaki hiçbir oyuncuyla eşleşmedi.")
             return report_lines, None, today_str, None, None 
 
-        # <--- GÜNCELLEME 1 (ROOKIE FİLTRESİ) b60.py ile eşitlenmek için BURADAN KALDIRILDI ---
-        # 
-        # (Orijinal kodunuzdaki 50 maç filtresi bloğu (lines 336-352) buradan silindi.)
-        # 
-        # <--- GÜNCELLEME 1 BİTTİ ---
+        # <--- YENİ EKLENEN FİLTRE (Kullanıcı İsteği) ---
+        # 50 Maç "Rookie Filtresi"
+        report_lines.append("--- Rookie Filtresi (Kariyer < 50 Maç) ---")
+        
+        if df_oyuncu_mac.empty:
+            report_lines.append("UYARI: 'df_oyuncu_mac' (geçmiş maçlar) verisi boş, Rookie Filtresi uygulanamadı.")
+        else:
+            report_lines.append("Veritabanındaki (df_oyuncu_mac) toplam kariyer maç sayıları hesaplanıyor...")
+            # Oyuncuların kariyer toplam maç sayılarını hesapla
+            player_total_matches = df_oyuncu_mac['PLAYER_ID'].value_counts()
+            player_total_matches_df = player_total_matches.reset_index()
+            player_total_matches_df.columns = ['PLAYER_ID', 'total_matches']
+            
+            # Bu sezonki oyuncu listesine kariyer maç sayılarını ekle
+            key_players_df = key_players_df.merge(player_total_matches_df, on='PLAYER_ID', how='left')
+            key_players_df['total_matches'] = key_players_df['total_matches'].fillna(0).astype(int)
+            
+            total_before_rookie_filter = len(key_players_df)
+            
+            # Filtreyi uygula
+            key_players_df = key_players_df[key_players_df['total_matches'] >= 50].copy()
+            
+            total_after_rookie_filter = len(key_players_df)
+            filtered_count = total_before_rookie_filter - total_after_rookie_filter
+            
+            if filtered_count > 0:
+                report_lines.append(f"Rookie Filtresi: Kariyer maçı 50'den az olan {filtered_count} oyuncu elendi.")
+            else:
+                report_lines.append("Rookie Filtresi: 50 maç altı oyuncu bulunamadı veya zaten elenmişti.")
+            
+            if key_players_df.empty:
+                report_lines.append("Hata: Rookie Filtresi sonrası analiz edilecek oyuncu kalmadı.")
+                return report_lines, None, today_str, None, None
+        # <--- FİLTRE SONU ---
 
         
         key_players_df['MIN_PER_GAME'] = key_players_df.apply(
@@ -539,7 +572,7 @@ def get_players_for_hybrid_analysis(
             ascending=[True, True, False]
         )
         
-        report_lines.append(f"Toplam {len(top_players_final)} kilit ve aktif oyuncu (GP >= 3) bulundu.")
+        report_lines.append(f"Toplam {len(top_players_final)} kilit ve aktif oyuncu (GP >= 3 VE Kariyer >= 50) bulundu.")
         
         return report_lines, top_players_final, today_str, current_season_players_df, csv_inactive_player_names
 
