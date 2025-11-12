@@ -378,6 +378,10 @@ def analyze_player_logic(player_name, middle_barem, df_oyuncu_mac, df_oyuncu_sez
 # === GÜNCELLEME 3: 'get_players_for_hybrid_analysis' (Rookie Filtresi GERİ EKLENDİ) ===
 # ========================================================================
 
+# ========================================================================
+# === GÜNCELLEME 3: 'get_players_for_hybrid_analysis' (Rookie Filtresi GERİ EKLENDİ) ===
+# ========================================================================
+
 def get_players_for_hybrid_analysis(
     df_games_today,        
     df_oyuncu_mac,
